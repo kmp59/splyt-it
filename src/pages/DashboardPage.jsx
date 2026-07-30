@@ -69,8 +69,8 @@ export default function DashboardPage() {
 
   const firstName = (user?.displayName || user?.email?.split('@')[0] || 'there').split(' ')[0]
 
-  const activeGroups = groups.filter((g) => !g.completed)
-  const archivedGroups = groups.filter((g) => g.completed)
+  const activeGroups = groups.filter((g) => !g.archived)
+  const archivedGroups = groups.filter((g) => g.archived)
 
   function renderGroupRow(g) {
     return (
@@ -81,9 +81,14 @@ export default function DashboardPage() {
       >
         <Avatar name={g.name} uid={g.id} size="lg" />
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm truncate group-hover:text-green-300 transition-colors">
-            {g.name}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-sm truncate group-hover:text-green-300 transition-colors">
+              {g.name}
+            </p>
+            {g.completed && !g.archived && (
+              <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none shrink-0">settling up</span>
+            )}
+          </div>
           <p className="text-xs text-slate-400 mt-0.5">
             {g.memberIds?.length ?? 1}{' '}
             {g.memberIds?.length === 1 ? 'member' : 'members'}

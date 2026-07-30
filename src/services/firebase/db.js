@@ -5,6 +5,7 @@ export {
   createGroup,
   joinGroup,
   completeGroup,
+  archiveGroup,
   reopenGroup,
   addGuestToGroup,
   addMemberToGroup,

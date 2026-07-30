@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2, Pencil, Receipt, BarChart2, UserPlus } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, completeGroup, reopenGroup } from '../services/db'
+import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, completeGroup, archiveGroup, reopenGroup, getPayments } from '../services/db'
 import { calculateBalances } from '../utils/balances'
 import NavBar from '../components/ui/NavBar'
 import Avatar from '../components/ui/Avatar'
@@ -32,11 +32,12 @@ export default function GroupPage() {
   const [group, setGroup] = useState(null)
   const [expenses, setExpenses] = useState([])
   const [members, setMembers] = useState({})
+  const [payments, setPayments] = useState([])
   const [groupLoading, setGroupLoading] = useState(true)
   const [showAddExpense, setShowAddExpense] = useState(false)
   const [editingExpense, setEditingExpense] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
-  const [tab, setTab] = useState('balances')
+  const [tab, setTab] = useState('expenses')
   const [addMemberEmail, setAddMemberEmail] = useState('')
   const [addMemberName, setAddMemberName] = useState('')
   const [addMemberMode, setAddMemberMode] = useState('email')
@@ -45,6 +46,7 @@ export default function GroupPage() {
   const [selectedExpense, setSelectedExpense] = useState(null)
   const [showSettleUp, setShowSettleUp] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [archiving, setArchiving] = useState(false)
 
   // real-time group doc
   useEffect(() => {
@@ -68,6 +70,14 @@ export default function GroupPage() {
       setExpenses,
       () => toast('Failed to load expenses.', 'error')
     )
+  }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function refreshPayments() {
+    getPayments(groupId).then(setPayments)
+  }
+
+  useEffect(() => {
+    refreshPayments()
   }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleAddMember(e) {
@@ -113,7 +123,6 @@ export default function GroupPage() {
     setCompleting(true)
     try {
       await completeGroup(groupId)
-      setShowSettleUp(true)
     } catch {
       toast('Failed to complete trip.', 'error')
     } finally {
@@ -121,8 +130,22 @@ export default function GroupPage() {
     }
   }
 
+  async function handleArchive() {
+    if (!confirm('Archive this group for everyone?')) return
+    setArchiving(true)
+    try {
+      await archiveGroup(groupId)
+      toast('Group archived.', 'success')
+    } catch {
+      toast('Failed to archive group.', 'error')
+    } finally {
+      setArchiving(false)
+    }
+  }
+
   async function handleReopen() {
     await reopenGroup(groupId)
+    setShowSettleUp(false)
   }
 
   async function handleDelete(expense) {
@@ -147,23 +170,26 @@ export default function GroupPage() {
     )
   }
 
-  const balances = calculateBalances(expenses)
+  const balances = calculateBalances(expenses, payments)
   const memberList = group.memberIds ?? []
   const hasExpenses = expenses.length > 0
+  const myBalance = balances[user?.uid] ?? 0
 
   const navLeft = (
     <div className="flex items-center gap-2 min-w-0">
       <Link
         to="/dashboard"
-        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
+        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
       >
         <ArrowLeft size={16} />
       </Link>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="font-semibold text-white text-sm leading-tight truncate">{group.name}</p>
-          {group.completed && (
-            <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none shrink-0">completed</span>
+          {group.archived ? (
+            <span className="text-[10px] font-medium text-slate-400 bg-slate-800/60 border border-slate-700/50 rounded-md px-1.5 py-0.5 leading-none shrink-0">archived</span>
+          ) : group.completed && (
+            <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none shrink-0">settling up</span>
           )}
         </div>
         <p className="text-[11px] text-slate-500 truncate">ID: {group.id}</p>
@@ -175,18 +201,20 @@ export default function GroupPage() {
     <div className="min-h-screen bg-slate-950 text-white">
       <NavBar left={navLeft} />
 
-      {/* Mobile tab bar */}
-      <div className="sm:hidden border-b border-slate-800 bg-slate-950 sticky top-14 z-20">
+      {/* Tab bar: Expenses (default), Spending, Balances */}
+      <div className="border-b border-slate-800 bg-slate-950 sticky top-14 z-20">
         <div className="max-w-2xl mx-auto px-4 flex">
           {[
-            { id: 'balances', label: 'Balances', icon: BarChart2 },
             { id: 'expenses', label: 'Expenses', icon: Receipt },
+            { id: 'spending', label: 'Spending', icon: TrendingUp },
+            { id: 'balances', label: 'Balances', icon: Scale },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
               className={clsx(
                 'flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium border-b-2 transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-inset',
                 tab === id
                   ? 'border-green-500 text-green-400'
                   : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -201,11 +229,22 @@ export default function GroupPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-8">
         {/* Action buttons */}
-        <div className="hidden sm:flex justify-end gap-2">
-          {group.completed ? (
-            <Button onClick={() => setShowSettleUp(true)}>
-              Settle up
+        <div className="flex justify-end gap-2">
+          {group.archived ? (
+            <Button variant="secondary" onClick={handleReopen}>
+              <RotateCcw size={14} />
+              Reopen trip
             </Button>
+          ) : group.completed ? (
+            <>
+              <Button onClick={() => setShowSettleUp(true)}>
+                Settle up
+              </Button>
+              <Button variant="secondary" onClick={() => setShowAddExpense(true)}>
+                <Plus size={15} />
+                Add expense
+              </Button>
+            </>
           ) : (
             <>
               <Button variant="secondary" onClick={handleComplete} disabled={completing || !hasExpenses}>
@@ -219,8 +258,8 @@ export default function GroupPage() {
           )}
         </div>
 
-        {/* Members */}
-        <section className={clsx(tab !== 'balances' && 'hidden sm:block')}>
+        {/* Members — always visible regardless of tab */}
+        <section>
           <div className="flex items-center justify-between mb-3">
             <h2 className={SECTION_LABEL} style={{ marginBottom: 0 }}>Members · {memberList.length}</h2>
             <button
@@ -308,71 +347,16 @@ export default function GroupPage() {
           )}
         </section>
 
-        {/* Spending */}
-        {hasExpenses && (
-          <section className={clsx(tab !== 'balances' && 'hidden sm:block')}>
-            <h2 className={SECTION_LABEL}>Spending</h2>
-            {(() => {
-              const spending = {}
-              for (const exp of expenses) {
-                spending[exp.paidBy] = (spending[exp.paidBy] ?? 0) + exp.amount
-              }
-              return (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800">
-                  {[...memberList]
-                    .sort((a, b) => (spending[b] ?? 0) - (spending[a] ?? 0))
-                    .map((uid, i) => {
-                      const spent = spending[uid] ?? 0
-                      const name = members[uid]?.displayName ?? members[uid]?.email ?? uid
-                      const isYou = uid === user?.uid
-                      return (
-                        <div key={uid} className={clsx(
-                          'flex items-center gap-3 px-4 py-3',
-                          isYou && 'bg-green-950/20'
-                        )}>
-                          <span className="text-xs text-slate-600 w-4 shrink-0 tabular-nums">{i + 1}</span>
-                          <Avatar name={name} uid={uid} size="sm" />
-                          <span className="flex-1 text-sm text-slate-300 truncate">{isYou ? 'You' : name}</span>
-                          <span className={clsx('text-sm font-semibold tabular-nums shrink-0', isYou ? 'text-green-400' : 'text-white')}>
-                            {fmt(spent)}
-                          </span>
-                        </div>
-                      )
-                    })}
-                </div>
-              )
-            })()}
-          </section>
-        )}
-
-
-        {/* Expenses list */}
-        <section className={clsx(tab !== 'expenses' && 'hidden sm:block')}>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className={SECTION_LABEL} style={{ marginBottom: 0 }}>
-              Expenses
-              {hasExpenses && (
-                <span className="ml-2 text-slate-500 font-normal normal-case tracking-normal">
-                  · {fmt(group.totalExpenses ?? 0)} total
-                </span>
-              )}
-            </h2>
-            <div className="sm:hidden flex gap-2">
-              {group.completed ? (
-                <Button size="sm" onClick={() => setShowSettleUp(true)}>Settle up</Button>
-              ) : (
-                <>
-                  <Button size="sm" variant="secondary" onClick={handleComplete} disabled={completing || !hasExpenses}>
-                    {completing ? '…' : 'Complete'}
-                  </Button>
-                  <Button size="sm" onClick={() => setShowAddExpense(true)}>
-                    <Plus size={13} />
-                    Add
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
+        {/* Expenses list — default tab */}
+        <section className={clsx(tab !== 'expenses' && 'hidden')}>
+          <h2 className={SECTION_LABEL}>
+            Expenses
+            {hasExpenses && (
+              <span className="ml-2 text-slate-500 font-normal normal-case tracking-normal">
+                · {fmt(group.totalExpenses ?? 0)} total
+              </span>
+            )}
+          </h2>
 
           {expenses.length === 0 ? (
             <EmptyState
@@ -429,7 +413,7 @@ export default function GroupPage() {
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setEditingExpense(exp) }}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-green-400 hover:bg-slate-800 transition-colors shrink-0"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-green-400 hover:bg-slate-800 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
                       title="Edit expense"
                     >
                       <Pencil size={14} />
@@ -438,7 +422,7 @@ export default function GroupPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(exp) }}
                         disabled={deletingId === exp.id}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-30 shrink-0"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-30 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                         title="Delete expense"
                       >
                         <Trash2 size={14} />
@@ -448,6 +432,102 @@ export default function GroupPage() {
                 )
               })}
             </div>
+          )}
+        </section>
+
+        {/* Spending — per-member totals */}
+        <section className={clsx(tab !== 'spending' && 'hidden')}>
+          <h2 className={SECTION_LABEL}>Spending</h2>
+          {!hasExpenses ? (
+            <EmptyState
+              icon={TrendingUp}
+              title="No spending yet"
+              description="Once expenses are added, you'll see who paid for what here."
+            />
+          ) : (() => {
+            const spending = {}
+            for (const exp of expenses) {
+              spending[exp.paidBy] = (spending[exp.paidBy] ?? 0) + exp.amount
+            }
+            return (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800">
+                {[...memberList]
+                  .sort((a, b) => (spending[b] ?? 0) - (spending[a] ?? 0))
+                  .map((uid, i) => {
+                    const spent = spending[uid] ?? 0
+                    const name = members[uid]?.displayName ?? members[uid]?.email ?? uid
+                    const isYou = uid === user?.uid
+                    return (
+                      <div key={uid} className={clsx(
+                        'flex items-center gap-3 px-4 py-3',
+                        isYou && 'bg-green-950/20'
+                      )}>
+                        <span className="text-xs text-slate-600 w-4 shrink-0 tabular-nums">{i + 1}</span>
+                        <Avatar name={name} uid={uid} size="sm" />
+                        <span className="flex-1 text-sm text-slate-300 truncate">{isYou ? 'You' : name}</span>
+                        <span className={clsx('text-sm font-semibold tabular-nums shrink-0', isYou ? 'text-green-400' : 'text-white')}>
+                          {fmt(spent)}
+                        </span>
+                      </div>
+                    )
+                  })}
+              </div>
+            )
+          })()}
+        </section>
+
+        {/* Balances — who owes whom */}
+        <section className={clsx(tab !== 'balances' && 'hidden')}>
+          <h2 className={SECTION_LABEL}>Balances</h2>
+          {!hasExpenses ? (
+            <EmptyState
+              icon={Scale}
+              title="No balances yet"
+              description="Add an expense and balances will appear here."
+            />
+          ) : (
+            <>
+              <div className={clsx(
+                'rounded-2xl border px-4 py-3.5 mb-3 flex items-center justify-between',
+                myBalance > 0.005 ? 'border-green-800/60 bg-green-950/20' :
+                myBalance < -0.005 ? 'border-orange-800/60 bg-orange-950/20' :
+                'border-slate-800 bg-slate-900'
+              )}>
+                <p className="text-sm text-slate-300">
+                  {myBalance > 0.005 ? "You're owed" : myBalance < -0.005 ? 'You owe' : "You're settled up"}
+                </p>
+                {Math.abs(myBalance) > 0.005 && (
+                  <p className={clsx(
+                    'font-bold tabular-nums',
+                    myBalance > 0.005 ? 'text-green-400' : 'text-orange-400'
+                  )}>
+                    {fmt(Math.abs(myBalance))}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 mb-4">
+                {memberList.map((uid) => {
+                  const balance = balances[uid] ?? 0
+                  const name = members[uid]?.displayName ?? members[uid]?.email ?? uid
+                  const isYou = uid === user?.uid
+                  return (
+                    <div key={uid} className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Avatar name={name} uid={uid} size="xs" />
+                        <span className="text-xs text-slate-400 truncate">{isYou ? 'You' : name}</span>
+                      </div>
+                      <p className={clsx(
+                        'text-sm font-semibold tabular-nums',
+                        balance > 0.005 ? 'text-green-400' : balance < -0.005 ? 'text-orange-400' : 'text-slate-500'
+                      )}>
+                        {balance > 0.005 ? '+' : ''}{fmt(Math.abs(balance) < 0.005 ? 0 : balance)}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
           )}
         </section>
       </main>
@@ -477,14 +557,15 @@ export default function GroupPage() {
         />
       )}
 
-      {showSettleUp && (
+      {showSettleUp && !group.archived && (
         <SettleUpModal
           groupId={groupId}
           expenses={expenses}
           members={members}
           currentUid={user?.uid}
-          onReopen={handleReopen}
-          onClose={() => setShowSettleUp(false)}
+          onArchive={handleArchive}
+          archiving={archiving}
+          onClose={() => { setShowSettleUp(false); refreshPayments() }}
         />
       )}
     </div>

@@ -36,7 +36,7 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
           <h2 className="font-semibold text-white">{title}</h2>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
           >
             <X size={15} />
           </button>

@@ -139,11 +139,19 @@ export async function completeGroup(groupId) {
   writeGroups(groups)
 }
 
+export async function archiveGroup(groupId) {
+  const groups = readGroups()
+  const idx = groups.findIndex((g) => g.id === groupId)
+  if (idx === -1) throw new Error('Group not found')
+  groups[idx] = { ...groups[idx], archived: true }
+  writeGroups(groups)
+}
+
 export async function reopenGroup(groupId) {
   const groups = readGroups()
   const idx = groups.findIndex((g) => g.id === groupId)
   if (idx === -1) throw new Error('Group not found')
-  groups[idx] = { ...groups[idx], completed: false }
+  groups[idx] = { ...groups[idx], completed: false, archived: false }
   writeGroups(groups)
 }
 

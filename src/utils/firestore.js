@@ -61,8 +61,12 @@ export async function completeGroup(groupId) {
   await updateDoc(doc(db, 'groups', groupId), { completed: true })
 }
 
+export async function archiveGroup(groupId) {
+  await updateDoc(doc(db, 'groups', groupId), { archived: true })
+}
+
 export async function reopenGroup(groupId) {
-  await updateDoc(doc(db, 'groups', groupId), { completed: false })
+  await updateDoc(doc(db, 'groups', groupId), { completed: false, archived: false })
 }
 
 export async function addGuestToGroup(groupId, displayName) {

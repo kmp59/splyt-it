@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { initializeFirestore } from 'firebase/firestore'
 
 // When VITE_DATA_MODE=local the Firebase SDK is imported but never initialised,
 // so the app works without any Firebase credentials configured.
@@ -17,4 +17,6 @@ const firebaseConfig = {
 
 export const app  = IS_LOCAL ? null : initializeApp(firebaseConfig)
 export const auth = IS_LOCAL ? null : getAuth(app)
-export const db   = IS_LOCAL ? null : getFirestore(app)
+export const db   = IS_LOCAL ? null : initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+})

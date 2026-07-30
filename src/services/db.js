@@ -9,6 +9,7 @@ const impl = import.meta.env.VITE_DATA_MODE === 'local' ? localDb : firebaseDb
 export const createGroup       = impl.createGroup
 export const joinGroup         = impl.joinGroup
 export const completeGroup     = impl.completeGroup
+export const archiveGroup      = impl.archiveGroup
 export const reopenGroup       = impl.reopenGroup
 export const addGuestToGroup   = impl.addGuestToGroup
 export const addMemberToGroup  = impl.addMemberToGroup
