@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(data) {
+      return isSignedIn() && data.memberIds is list && request.auth.uid in data.memberIds;
+    }
+
+    // A not-yet-member is allowed to add *only themselves* to memberIds
+    // (invite-link join via arrayUnion in joinGroup()). resource.data is the
+    // pre-write state, so this can't be folded into isMember().
+    function isSelfJoin() {
+      return isSignedIn()
+        && !(request.auth.uid in resource.data.memberIds)
+        && request.resource.data.memberIds == resource.data.memberIds.concat([request.auth.uid])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds']);
+    }
+
+    function isGroupMember(groupId) {
+      return isSignedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+    }
+
+    // users: profile docs, keyed by uid. Email->uid lookup goes through
+    // /emailIndex (get-only, below) rather than a query here. Name/email
+    // search (searchUsers in utils/firestore.js) does need to `list` this
+    // collection — capped at 8 results per query so a signed-in caller can't
+    // page through the whole collection in one shot. This trades some
+    // enumerability (any signed-in user can look up others by partial
+    // name/email match) for not requiring a paid plan for Cloud Functions.
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && request.query.limit <= 8;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // emailIndex: {normalizedEmail} -> { uid }. Lets resolveEmailsToUids()
+    // resolve an invitee's email to a uid via get() instead of a `list`
+    // query on /users, so /users can deny `list` outright. A user may only
+    // create/update the index entry that points at their own uid, so no one
+    // can claim or overwrite someone else's email mapping.
+    match /emailIndex/{email} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create, update: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /groups/{groupId} {
+      allow read: if isMember(resource.data);
+      allow create: if isSignedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.auth.uid in request.resource.data.memberIds;
+      allow update: if isMember(resource.data) || isSelfJoin();
+      allow delete: if false;
+
+      match /expenses/{expenseId} {
+        allow read, write: if isGroupMember(groupId);
+      }
+
+      match /payments/{paymentId} {
+        allow read, write: if isGroupMember(groupId);
+      }
+    }
+  }
+}
