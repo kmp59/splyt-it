@@ -28,3 +28,7 @@ secret.txt
 scripts/serviceAccountKey.json
 scripts/*.serviceAccountKey.json
 exports/
+
+# Local-only setup notes
+VERCEL_SETUP.md
+FIREBASE_SETUP.md
