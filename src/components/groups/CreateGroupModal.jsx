@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
-import { createGroup, searchUsers } from '../../services/db'
+import { createGroup, lookupUserByEmail } from '../../services/db'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import Avatar from '../ui/Avatar'
@@ -15,40 +15,38 @@ export default function CreateGroupModal({ onClose, onCreated }) {
   const toast = useToast()
   const [name, setName] = useState('')
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [searching, setSearching] = useState(false)
+  const [lookupError, setLookupError] = useState('')
+  const [looking, setLooking] = useState(false)
   const [selected, setSelected] = useState([])
   const [loading, setLoading] = useState(false)
-  const debounceRef = useRef(null)
 
-  useEffect(() => {
-    clearTimeout(debounceRef.current)
+  async function handleLookup(e) {
+    e.preventDefault()
     const term = query.trim()
-    debounceRef.current = setTimeout(
-      async () => {
-        if (!term) {
-          setResults([])
-          setSearching(false)
-          return
-        }
-        setSearching(true)
-        try {
-          const users = await searchUsers(term, user.uid)
-          setResults(users.filter((u) => !selected.some((s) => s.uid === u.uid)))
-        } catch (err) {
-          console.error(err)
-        } finally {
-          setSearching(false)
-        }
-      },
-      term ? 250 : 0
-    )
-    return () => clearTimeout(debounceRef.current)
-  }, [query, selected, user.uid])
+    if (!term) return
+    setLookupError('')
+    setLooking(true)
+    try {
+      const found = await lookupUserByEmail(term, user.uid)
+      if (!found) {
+        setLookupError('No user with that email')
+        return
+      }
+      if (selected.some((s) => s.uid === found.uid)) {
+        setLookupError('Already added')
+        return
+      }
+      addMember(found)
+    } catch (err) {
+      console.error(err)
+      setLookupError('Lookup failed. Please try again.')
+    } finally {
+      setLooking(false)
+    }
+  }
 
   function addMember(u) {
     setSelected((prev) => [...prev, u])
-    setResults((prev) => prev.filter((r) => r.uid !== u.uid))
     setQuery('')
   }
 
@@ -105,7 +103,7 @@ export default function CreateGroupModal({ onClose, onCreated }) {
                   <button
                     type="button"
                     onClick={() => removeMember(u.uid)}
-                    className="text-slate-500 hover:text-red-400 leading-none"
+                    className="text-slate-500 hover:text-red-400 leading-none p-2 -m-2"
                     aria-label={`Remove ${u.displayName}`}
                   >
                     ×
@@ -115,43 +113,30 @@ export default function CreateGroupModal({ onClose, onCreated }) {
             </div>
           )}
 
-          <div className="relative">
+          <div className="flex gap-2">
             <input
-              type="text"
+              type="email"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                setLookupError('')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleLookup(e)
+                }
+              }}
               className={INPUT_CLS}
-              placeholder="Search by name or email"
+              placeholder="Enter their exact email"
             />
-
-            {query.trim() && (
-              <div className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-xl shadow-lg overflow-hidden">
-                {searching && (
-                  <div className="px-4 py-2.5 text-sm text-slate-400">Searching…</div>
-                )}
-                {!searching && results.length === 0 && (
-                  <div className="px-4 py-2.5 text-sm text-slate-500">No users found</div>
-                )}
-                {!searching &&
-                  results.map((u) => (
-                    <button
-                      type="button"
-                      key={u.uid}
-                      onClick={() => addMember(u)}
-                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-700/60 transition-colors"
-                    >
-                      <Avatar name={u.displayName} uid={u.uid} size="sm" />
-                      <div className="min-w-0">
-                        <div className="text-sm text-white truncate">{u.displayName}</div>
-                        <div className="text-xs text-slate-500 truncate">{u.email}</div>
-                      </div>
-                    </button>
-                  ))}
-              </div>
-            )}
+            <Button type="button" variant="secondary" onClick={handleLookup} disabled={looking || !query.trim()}>
+              {looking ? <LoadingSpinner size="sm" /> : 'Add'}
+            </Button>
           </div>
+          {lookupError && <p className="text-xs text-red-400 mt-1.5">{lookupError}</p>}
           <p className="text-xs text-slate-500 mt-1.5">
-            Only registered users can be found. Share the group ID to invite others.
+            They'll be invited and need to accept before joining.
           </p>
         </div>
 

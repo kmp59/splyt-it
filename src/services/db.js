@@ -8,6 +8,9 @@ const impl = import.meta.env.VITE_DATA_MODE === 'local' ? localDb : firebaseDb
 
 export const createGroup       = impl.createGroup
 export const joinGroup         = impl.joinGroup
+export const acceptInvite      = impl.acceptInvite
+export const declineInvite     = impl.declineInvite
+export const getPendingInvites = impl.getPendingInvites
 export const completeGroup     = impl.completeGroup
 export const archiveGroup      = impl.archiveGroup
 export const reopenGroup       = impl.reopenGroup
@@ -18,11 +21,12 @@ export const getPayments       = impl.getPayments
 export const getUserGroups     = impl.getUserGroups
 export const getGroupById      = impl.getGroupById
 export const getGroupMembers   = impl.getGroupMembers
-export const searchUsers       = impl.searchUsers
+export const lookupUserByEmail = impl.lookupUserByEmail
 export const addExpense        = impl.addExpense
 export const getExpenses       = impl.getExpenses
 export const deleteExpense     = impl.deleteExpense
 export const updateExpense     = impl.updateExpense
-export const subscribeToUserGroups = impl.subscribeToUserGroups
+export const subscribeToUserGroups    = impl.subscribeToUserGroups
+export const subscribeToPendingInvites = impl.subscribeToPendingInvites
 export const subscribeToGroup      = impl.subscribeToGroup
 export const subscribeToExpenses   = impl.subscribeToExpenses

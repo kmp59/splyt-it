@@ -57,11 +57,12 @@ export default function GroupPage() {
     )
   }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // fetch member profiles when memberIds change
+  // fetch member + pending-invitee profiles when either list changes
+  const allProfileIds = [...(group?.memberIds ?? []), ...(group?.pendingMemberIds ?? [])]
   useEffect(() => {
-    if (!group?.memberIds?.length) return
-    getGroupMembers(group.memberIds).then(setMembers)
-  }, [group?.memberIds?.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!allProfileIds.length) return
+    getGroupMembers(allProfileIds).then(setMembers)
+  }, [allProfileIds.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // real-time expenses
   useEffect(() => {
@@ -87,7 +88,7 @@ export default function GroupPage() {
     setAddingMember(true)
     try {
       await addMemberToGroup(groupId, email)
-      toast(`${email} added to the group.`, 'success')
+      toast(`${email} invited — they'll join once they accept.`, 'success')
       setAddMemberEmail('')
       setShowAddMember(false)
     } catch (err) {
@@ -172,6 +173,7 @@ export default function GroupPage() {
 
   const balances = calculateBalances(expenses, payments)
   const memberList = group.memberIds ?? []
+  const pendingList = group.pendingMemberIds ?? []
   const hasExpenses = expenses.length > 0
   const myBalance = balances[user?.uid] ?? 0
 
@@ -179,7 +181,7 @@ export default function GroupPage() {
     <div className="flex items-center gap-2 min-w-0">
       <Link
         to="/dashboard"
-        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+        className="w-11 h-11 -ml-2 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
       >
         <ArrowLeft size={16} />
       </Link>
@@ -287,6 +289,25 @@ export default function GroupPage() {
             })}
           </div>
 
+          {pendingList.length > 0 && (
+            <div className="mt-3">
+              <span className="text-[11px] text-slate-500 uppercase tracking-wide">Pending invites</span>
+              <div className="flex flex-wrap gap-2.5 mt-1.5">
+                {pendingList.map((uid) => {
+                  const profile = members[uid]
+                  const name = profile?.displayName ?? profile?.email ?? uid
+                  return (
+                    <div key={uid} className="flex items-center gap-2 bg-slate-900/50 border border-dashed border-slate-700 rounded-xl px-3 py-2 opacity-70">
+                      <Avatar name={name} uid={uid} size="sm" />
+                      <span className="text-sm text-slate-400">{name}</span>
+                      <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none">invited</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {showAddMember && (
             <div className="mt-3 space-y-2">
               {/* Mode toggle */}
@@ -390,7 +411,7 @@ export default function GroupPage() {
                     <Avatar name={payerName} uid={exp.paidBy} size="md" />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{exp.description}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-400 mt-0.5 truncate">
                         {payerLabel} paid {fmt(exp.amount)} · {fmtDate(exp.date)}
                         {showAddedBy && ` · added by ${adderLabel}`}
                       </p>
@@ -413,7 +434,7 @@ export default function GroupPage() {
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setEditingExpense(exp) }}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-green-400 hover:bg-slate-800 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                      className="w-11 h-11 -my-2 flex items-center justify-center rounded-lg text-slate-600 hover:text-green-400 hover:bg-slate-800 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
                       title="Edit expense"
                     >
                       <Pencil size={14} />
@@ -422,7 +443,7 @@ export default function GroupPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(exp) }}
                         disabled={deletingId === exp.id}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-30 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                        className="w-11 h-11 -my-2 -mr-2 flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-30 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                         title="Delete expense"
                       >
                         <Trash2 size={14} />

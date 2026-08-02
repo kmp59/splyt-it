@@ -4,6 +4,9 @@
 export {
   createGroup,
   joinGroup,
+  acceptInvite,
+  declineInvite,
+  getPendingInvites,
   completeGroup,
   archiveGroup,
   reopenGroup,
@@ -18,7 +21,7 @@ export {
   getExpenses,
   deleteExpense,
   updateExpense,
-  searchUsers,
+  lookupUserByEmail,
 } from '../../utils/firestore'
 
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore'
@@ -26,6 +29,19 @@ import { db } from '../../firebase'
 
 export function subscribeToUserGroups(uid, onData, onError) {
   const q = query(collection(db, 'groups'), where('memberIds', 'array-contains', uid))
+  return onSnapshot(
+    q,
+    (snap) => {
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      docs.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0))
+      onData(docs)
+    },
+    onError
+  )
+}
+
+export function subscribeToPendingInvites(uid, onData, onError) {
+  const q = query(collection(db, 'groups'), where('pendingMemberIds', 'array-contains', uid))
   return onSnapshot(
     q,
     (snap) => {

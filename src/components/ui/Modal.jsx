@@ -36,12 +36,17 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
           <h2 className="font-semibold text-white">{title}</h2>
           <button
             onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+            className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
           >
             <X size={15} />
           </button>
         </div>
-        <div className="overflow-y-auto flex-1 overscroll-contain">{children}</div>
+        <div
+          className="overflow-y-auto flex-1 overscroll-contain"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   )

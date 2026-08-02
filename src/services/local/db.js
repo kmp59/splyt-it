@@ -104,7 +104,7 @@ export async function createGroup(name, createdByUid, memberEmails) {
   const resolvedUids = cleaned
     .map((email) => users.find((u) => u.email === email)?.uid)
     .filter(Boolean)
-  const memberIds = Array.from(new Set([createdByUid, ...resolvedUids]))
+  const pendingMemberIds = Array.from(new Set(resolvedUids.filter((uid) => uid !== createdByUid)))
   const id = lsId()
   writeGroups([
     ...readGroups(),
@@ -112,7 +112,8 @@ export async function createGroup(name, createdByUid, memberEmails) {
       id,
       name,
       createdBy: createdByUid,
-      memberIds,
+      memberIds: [createdByUid],
+      pendingMemberIds,
       memberEmails: cleaned,
       createdAt: { seconds: Date.now() / 1000 },
       totalExpenses: 0,
@@ -129,6 +130,33 @@ export async function joinGroup(groupId, uid) {
     groups[idx] = { ...groups[idx], memberIds: [...groups[idx].memberIds, uid] }
     writeGroups(groups)
   }
+}
+
+export async function acceptInvite(groupId, uid) {
+  const groups = readGroups()
+  const idx = groups.findIndex((g) => g.id === groupId)
+  if (idx === -1) throw new Error('Group not found')
+  groups[idx] = {
+    ...groups[idx],
+    memberIds: groups[idx].memberIds.includes(uid) ? groups[idx].memberIds : [...groups[idx].memberIds, uid],
+    pendingMemberIds: (groups[idx].pendingMemberIds ?? []).filter((id) => id !== uid),
+  }
+  writeGroups(groups)
+}
+
+export async function declineInvite(groupId, uid) {
+  const groups = readGroups()
+  const idx = groups.findIndex((g) => g.id === groupId)
+  if (idx === -1) throw new Error('Group not found')
+  groups[idx] = {
+    ...groups[idx],
+    pendingMemberIds: (groups[idx].pendingMemberIds ?? []).filter((id) => id !== uid),
+  }
+  writeGroups(groups)
+}
+
+export async function getPendingInvites(uid) {
+  return readGroups().filter((g) => g.pendingMemberIds?.includes(uid))
 }
 
 export async function completeGroup(groupId) {
@@ -174,10 +202,12 @@ export async function addMemberToGroup(groupId, email) {
   const groups = readGroups()
   const idx = groups.findIndex((g) => g.id === groupId)
   if (idx === -1) throw new Error('Group not found')
-  if (!groups[idx].memberIds.includes(user.uid)) {
+  const alreadyThere =
+    groups[idx].memberIds.includes(user.uid) || (groups[idx].pendingMemberIds ?? []).includes(user.uid)
+  if (!alreadyThere) {
     groups[idx] = {
       ...groups[idx],
-      memberIds: [...groups[idx].memberIds, user.uid],
+      pendingMemberIds: [...(groups[idx].pendingMemberIds ?? []), user.uid],
       memberEmails: [...(groups[idx].memberEmails ?? []), cleaned],
     }
     writeGroups(groups)
@@ -192,20 +222,12 @@ export async function getGroupById(groupId) {
   return readGroups().find((g) => g.id === groupId) ?? null
 }
 
-export async function searchUsers(term, excludeUid) {
-  const cleaned = term.trim().toLowerCase()
-  if (!cleaned) return []
-  return readUsers()
-    .filter((u) => u.uid !== excludeUid && !u.isGuest)
-    .filter(
-      (u) => u.displayName?.toLowerCase().includes(cleaned) || u.email?.toLowerCase().includes(cleaned)
-    )
-    .slice(0, 8)
-    .map((u) => {
-      const copy = { ...u }
-      delete copy.password
-      return copy
-    })
+export async function lookupUserByEmail(email, excludeUid) {
+  const cleaned = email.trim().toLowerCase()
+  if (!cleaned) return null
+  const user = readUsers().find((u) => u.email === cleaned && !u.isGuest)
+  if (!user || user.uid === excludeUid) return null
+  return { uid: user.uid, displayName: user.displayName, email: user.email }
 }
 
 export async function getGroupMembers(memberIds) {
@@ -280,6 +302,21 @@ export function subscribeToUserGroups(uid, onData, onError) {
     try {
       const groups = readGroups()
         .filter((g) => g.memberIds?.includes(uid))
+        .sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0))
+      onData(groups)
+    } catch (err) {
+      onError?.(err)
+    }
+  }
+  push()
+  return lsSubscribe(GRP_KEY, push)
+}
+
+export function subscribeToPendingInvites(uid, onData, onError) {
+  function push() {
+    try {
+      const groups = readGroups()
+        .filter((g) => g.pendingMemberIds?.includes(uid))
         .sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0))
       onData(groups)
     } catch (err) {

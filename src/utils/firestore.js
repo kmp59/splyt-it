@@ -7,15 +7,13 @@ import {
   deleteDoc,
   updateDoc,
   arrayUnion,
+  arrayRemove,
   increment,
   query,
   where,
-  limit,
   serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../firebase'
-
-const SEARCH_RESULT_LIMIT = 8
 
 // Email->uid resolution goes through the /emailIndex collection — one get()
 // per email — rather than a where(email, 'in', emails) query on /users.
@@ -36,12 +34,15 @@ export async function createGroup(name, createdByUid, memberEmails) {
   const cleaned = memberEmails.map((e) => e.trim().toLowerCase()).filter(Boolean)
   const { uids: resolvedUids } = await resolveEmailsToUids(cleaned)
 
-  const memberIds = Array.from(new Set([createdByUid, ...resolvedUids]))
+  // Creator is a full member immediately; everyone else is invited and must
+  // accept before they gain memberIds (and therefore expense/payment access).
+  const pendingMemberIds = Array.from(new Set(resolvedUids.filter((uid) => uid !== createdByUid)))
 
   const groupRef = await addDoc(collection(db, 'groups'), {
     name,
     createdBy: createdByUid,
-    memberIds,
+    memberIds: [createdByUid],
+    pendingMemberIds,
     memberEmails: cleaned,
     createdAt: serverTimestamp(),
     totalExpenses: 0,
@@ -55,6 +56,27 @@ export async function joinGroup(groupId, uid) {
   await updateDoc(groupRef, {
     memberIds: arrayUnion(uid),
   })
+}
+
+export async function acceptInvite(groupId, uid) {
+  const groupRef = doc(db, 'groups', groupId)
+  await updateDoc(groupRef, {
+    memberIds: arrayUnion(uid),
+    pendingMemberIds: arrayRemove(uid),
+  })
+}
+
+export async function declineInvite(groupId, uid) {
+  const groupRef = doc(db, 'groups', groupId)
+  await updateDoc(groupRef, {
+    pendingMemberIds: arrayRemove(uid),
+  })
+}
+
+export async function getPendingInvites(uid) {
+  const q = query(collection(db, 'groups'), where('pendingMemberIds', 'array-contains', uid))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
 export async function completeGroup(groupId) {
@@ -87,7 +109,7 @@ export async function addMemberToGroup(groupId, email) {
   const { uids } = await resolveEmailsToUids([cleaned])
   if (!uids.length) throw Object.assign(new Error('User not found'), { code: 'user/not-found' })
   await updateDoc(doc(db, 'groups', groupId), {
-    memberIds: arrayUnion(uids[0]),
+    pendingMemberIds: arrayUnion(uids[0]),
     memberEmails: arrayUnion(cleaned),
   })
 }
@@ -104,44 +126,22 @@ export async function getGroupById(groupId) {
   return { id: snap.id, ...snap.data() }
 }
 
-// Firestore has no substring search, only prefix range queries. `/users` allows
-// `list` for signed-in callers capped at SEARCH_RESULT_LIMIT (see firestore.rules) —
-// this trades a small amount of enumerability (any signed-in user can look up
-// others by partial name/email match) for not needing a paid Cloud Functions plan.
-function prefixRange(value) {
-  return [value, value.slice(0, -1) + String.fromCharCode(value.charCodeAt(value.length - 1) + 1)]
-}
+// Lookup is by exact email only — resolved via /emailIndex (get-only) then a
+// single get() on /users. No `list` query, so the directory can't be
+// enumerated by partial name/email match (see firestore.rules).
+export async function lookupUserByEmail(email, excludeUid) {
+  const cleaned = email.trim().toLowerCase()
+  if (!cleaned) return null
 
-export async function searchUsers(term, excludeUid) {
-  const cleaned = term.trim()
-  if (cleaned.length < 2) return []
+  const { uids } = await resolveEmailsToUids([cleaned])
+  if (!uids.length || uids[0] === excludeUid) return null
 
-  const usersRef = collection(db, 'users')
-  const runRange = (field, value) => {
-    const [start, end] = prefixRange(value)
-    return getDocs(query(usersRef, where(field, '>=', start), where(field, '<', end), limit(SEARCH_RESULT_LIMIT)))
-  }
+  const snap = await getDoc(doc(db, 'users', uids[0]))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  if (data.isGuest) return null
 
-  const emailTerm = cleaned.toLowerCase()
-  const nameTerm = cleaned
-  const nameTermCapitalized = nameTerm[0].toUpperCase() + nameTerm.slice(1)
-
-  const queries = [runRange('email', emailTerm), runRange('displayName', nameTerm)]
-  if (nameTermCapitalized !== nameTerm) queries.push(runRange('displayName', nameTermCapitalized))
-
-  const snapshots = await Promise.all(queries)
-
-  const results = new Map()
-  for (const snap of snapshots) {
-    for (const d of snap.docs) {
-      if (d.id === excludeUid || results.has(d.id)) continue
-      const data = d.data()
-      if (data.isGuest) continue
-      results.set(d.id, { uid: d.id, displayName: data.displayName, email: data.email })
-    }
-  }
-
-  return Array.from(results.values()).slice(0, SEARCH_RESULT_LIMIT)
+  return { uid: snap.id, displayName: data.displayName, email: data.email }
 }
 
 export async function getGroupMembers(memberIds) {

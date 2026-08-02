@@ -40,7 +40,7 @@ export default function NavBar({ left }) {
           <button
             onClick={handleLogout}
             title="Sign out"
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+            className="w-11 h-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
           >
             <LogOut size={15} />
           </button>

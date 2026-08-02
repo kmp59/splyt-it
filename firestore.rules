@@ -20,21 +20,61 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds']);
     }
 
+    function isPending(data) {
+      return isSignedIn() && data.pendingMemberIds is list
+        && request.auth.uid in data.pendingMemberIds;
+    }
+
+    // Existing members may edit anything except memberIds — membership can
+    // only grow via isSelfJoin/isSelfAccept, never a direct member write.
+    // Without this, any member could bypass the invite/accept flow entirely.
+    function isMemberUpdate(data) {
+      return isMember(data) && request.resource.data.memberIds == data.memberIds;
+    }
+
+    // Narrow carve-out for addGuestToGroup(): a member may append exactly one
+    // uid to memberIds if — and only if — that uid's /users doc is a guest
+    // placeholder (isGuest == true). Guests have no account to accept an
+    // invite with, so they're added directly by the member who created them;
+    // this can't be used to add a real (non-guest) user without consent.
+    function isGuestAdd(data) {
+      return isMember(data)
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['memberIds'])
+        && request.resource.data.memberIds.removeAll(data.memberIds).size() == 1
+        && get(/databases/$(database)/documents/users/$(request.resource.data.memberIds.removeAll(data.memberIds)[0])).data.isGuest == true;
+    }
+
+    // Invitee accepting: moves their own uid pendingMemberIds -> memberIds,
+    // nothing else changes in the same write.
+    function isSelfAccept() {
+      return isSignedIn()
+        && request.auth.uid in resource.data.pendingMemberIds
+        && !(request.auth.uid in resource.data.memberIds)
+        && request.resource.data.memberIds == resource.data.memberIds.concat([request.auth.uid])
+        && request.resource.data.pendingMemberIds == resource.data.pendingMemberIds.removeAll([request.auth.uid])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'pendingMemberIds']);
+    }
+
+    // Invitee declining: removes their own uid from pendingMemberIds only.
+    function isSelfDecline() {
+      return isSignedIn()
+        && request.auth.uid in resource.data.pendingMemberIds
+        && request.resource.data.pendingMemberIds == resource.data.pendingMemberIds.removeAll([request.auth.uid])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingMemberIds']);
+    }
+
     function isGroupMember(groupId) {
       return isSignedIn()
         && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
     }
 
-    // users: profile docs, keyed by uid. Email->uid lookup goes through
-    // /emailIndex (get-only, below) rather than a query here. Name/email
-    // search (searchUsers in utils/firestore.js) does need to `list` this
-    // collection — capped at 8 results per query so a signed-in caller can't
-    // page through the whole collection in one shot. This trades some
-    // enumerability (any signed-in user can look up others by partial
-    // name/email match) for not requiring a paid plan for Cloud Functions.
+    // users: profile docs, keyed by uid. Lookup is by exact email only
+    // (lookupUserByEmail in utils/firestore.js), resolved via /emailIndex
+    // (get-only, below) then a single get() here — no `list` query needed,
+    // so the collection can't be enumerated by partial name/email match.
     match /users/{userId} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn() && request.query.limit <= 8;
+      allow list: if false;
       allow create: if isSignedIn();
       allow update, delete: if isSignedIn() && request.auth.uid == userId;
     }
@@ -52,12 +92,15 @@ service cloud.firestore {
     }
 
     match /groups/{groupId} {
-      allow get: if isMember(resource.data);
-      allow list: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+      // Pending invitees may see the group doc itself (name/creator) to
+      // decide whether to accept — but not the expenses/payments
+      // subcollections below, which stay gated on memberIds only.
+      allow get: if isMember(resource.data) || isPending(resource.data);
+      allow list: if isMember(resource.data) || isPending(resource.data);
       allow create: if isSignedIn()
         && request.resource.data.createdBy == request.auth.uid
         && request.auth.uid in request.resource.data.memberIds;
-      allow update: if isMember(resource.data) || isSelfJoin();
+      allow update: if isMemberUpdate(resource.data) || isGuestAdd(resource.data) || isSelfJoin() || isSelfAccept() || isSelfDecline();
       allow delete: if false;
 
       match /expenses/{expenseId} {

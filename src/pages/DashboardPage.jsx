@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Users, Plus, Hash, ChevronRight, Archive } from 'lucide-react'
+import { Users, Plus, Hash, ChevronRight, Archive, Mail, Check, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { subscribeToUserGroups, joinGroup } from '../services/db'
+import { subscribeToUserGroups, subscribeToPendingInvites, joinGroup, acceptInvite, declineInvite } from '../services/db'
 import NavBar from '../components/ui/NavBar'
 import Button from '../components/ui/Button'
 import Avatar from '../components/ui/Avatar'
@@ -32,6 +32,8 @@ export default function DashboardPage() {
 
   const [groups, setGroups] = useState([])
   const [groupsLoading, setGroupsLoading] = useState(true)
+  const [invites, setInvites] = useState([])
+  const [respondingId, setRespondingId] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [joinId, setJoinId] = useState('')
   const [joining, setJoining] = useState(false)
@@ -50,6 +52,34 @@ export default function DashboardPage() {
       }
     )
   }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!user) return
+    return subscribeToPendingInvites(user.uid, setInvites, () => toast('Failed to load invites.', 'error'))
+  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleAccept(groupId) {
+    setRespondingId(groupId)
+    try {
+      await acceptInvite(groupId, user.uid)
+      navigate(`/groups/${groupId}`)
+    } catch {
+      toast('Failed to accept invite.', 'error')
+    } finally {
+      setRespondingId(null)
+    }
+  }
+
+  async function handleDecline(groupId) {
+    setRespondingId(groupId)
+    try {
+      await declineInvite(groupId, user.uid)
+    } catch {
+      toast('Failed to decline invite.', 'error')
+    } finally {
+      setRespondingId(null)
+    }
+  }
 
   async function handleJoin(e) {
     e.preventDefault()
@@ -120,6 +150,46 @@ export default function DashboardPage() {
             New group
           </Button>
         </div>
+
+        {invites.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <Mail size={12} />
+              Invites
+            </p>
+            <div className="space-y-2">
+              {invites.map((g) => (
+                <div
+                  key={g.id}
+                  className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3.5"
+                >
+                  <Avatar name={g.name} uid={g.id} size="lg" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{g.name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">You've been invited to join</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={respondingId === g.id}
+                    onClick={() => handleAccept(g.id)}
+                  >
+                    <Check size={13} />
+                    Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={respondingId === g.id}
+                    onClick={() => handleDecline(g.id)}
+                  >
+                    <X size={13} />
+                    Decline
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
