@@ -194,7 +194,6 @@ export default function GroupPage() {
             <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none shrink-0">settling up</span>
           )}
         </div>
-        <p className="text-[11px] text-slate-500 truncate">ID: {group.id}</p>
       </div>
     </div>
   )
