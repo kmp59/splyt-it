@@ -136,7 +136,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <NavBar />
 
       <main className="max-w-2xl mx-auto px-4 py-7 space-y-7">

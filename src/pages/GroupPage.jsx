@@ -165,7 +165,7 @@ export default function GroupPage() {
   if (groupLoading) return <FullPageSpinner />
   if (!group) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
+      <div className="min-h-dvh bg-slate-950 flex items-center justify-center text-slate-400">
         Group not found.
       </div>
     )
@@ -200,7 +200,7 @@ export default function GroupPage() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <NavBar left={navLeft} />
 
       {/* Tab bar: Expenses (default), Spending, Balances */}
