@@ -4,6 +4,10 @@ import {
   signOut as fbSignOut,
   onAuthStateChanged as fbOnAuthStateChanged,
   updateProfile,
+  updatePassword,
+  sendPasswordResetEmail,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db } from '../../firebase'
@@ -45,6 +49,32 @@ export async function signUp(email, password, displayName) {
   })
   await setEmailIndex(user.uid, normalizedEmail)
   return { user }
+}
+
+export async function resetPassword(email) {
+  return sendPasswordResetEmail(auth, email)
+}
+
+// Changing a password is a "sensitive" operation — Firebase requires the
+// session to be freshly authenticated, so we reauthenticate with the
+// caller-supplied current password first rather than asking the user to
+// sign out and back in.
+export async function changePassword(currentPassword, newPassword) {
+  const user = auth.currentUser
+  const credential = EmailAuthProvider.credential(user.email, currentPassword)
+  await reauthenticateWithCredential(user, credential)
+  await updatePassword(user, newPassword)
+}
+
+export async function changeDisplayName(displayName) {
+  const user = auth.currentUser
+  await updateProfile(user, { displayName })
+  await setDoc(doc(db, 'users', user.uid), { displayName }, { merge: true })
+}
+
+export function getCurrentUser() {
+  const user = auth.currentUser
+  return user ? { uid: user.uid, email: user.email, displayName: user.displayName } : null
 }
 
 export async function signOut() {

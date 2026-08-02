@@ -10,4 +10,8 @@ const impl = import.meta.env.VITE_DATA_MODE === 'local' ? localAuth : firebaseAu
 export const signIn = impl.signIn
 export const signUp = impl.signUp
 export const signOut = impl.signOut
+export const resetPassword = impl.resetPassword
+export const changePassword = impl.changePassword
+export const changeDisplayName = impl.changeDisplayName
+export const getCurrentUser = impl.getCurrentUser
 export const onAuthStateChanged = impl.onAuthStateChanged

@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged } from '../services/auth'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { onAuthStateChanged, getCurrentUser } from '../services/auth'
 
 const AuthContext = createContext(null)
+const RefreshUserContext = createContext(() => {})
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined)
@@ -10,9 +11,25 @@ export function AuthProvider({ children }) {
     return onAuthStateChanged(setUser)
   }, [])
 
-  return <AuthContext.Provider value={user}>{children}</AuthContext.Provider>
+  // Profile edits (display name) don't retrigger onAuthStateChanged — in
+  // Firebase mode that only fires on sign-in/out, not local profile field
+  // changes — so callers that change the current user's profile must
+  // explicitly refresh the context afterwards.
+  const refreshUser = useCallback(() => {
+    setUser(getCurrentUser())
+  }, [])
+
+  return (
+    <AuthContext.Provider value={user}>
+      <RefreshUserContext.Provider value={refreshUser}>{children}</RefreshUserContext.Provider>
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {
   return useContext(AuthContext)
+}
+
+export function useRefreshUser() {
+  return useContext(RefreshUserContext)
 }

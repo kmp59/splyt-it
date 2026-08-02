@@ -63,7 +63,12 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-300 mb-1.5">Password</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm text-slate-300">Password</label>
+                <Link to="/forgot-password" className="text-xs text-green-400 hover:text-green-300 font-medium">
+                  Forgot password?
+                </Link>
+              </div>
               <input
                 type="password"
                 value={password}

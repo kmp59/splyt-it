@@ -4,8 +4,10 @@ import { ToastProvider } from './context/ToastContext'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import LoginPage from './components/auth/LoginPage'
 import SignupPage from './components/auth/SignupPage'
+import ForgotPasswordPage from './components/auth/ForgotPasswordPage'
 import DashboardPage from './pages/DashboardPage'
 import GroupPage from './pages/GroupPage'
+import AccountPage from './pages/AccountPage'
 
 export default function App() {
   return (
@@ -15,6 +17,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route
             path="/dashboard"
             element={
@@ -28,6 +31,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <GroupPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/account"
+            element={
+              <ProtectedRoute>
+                <AccountPage />
               </ProtectedRoute>
             }
           />

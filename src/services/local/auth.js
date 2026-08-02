@@ -40,6 +40,42 @@ export async function signUp(email, password, displayName) {
   return { user: session }
 }
 
+// Local mode has no email transport, so there's nothing to actually send.
+// Mirrors Firebase's fire-and-forget behavior (resolves regardless of
+// whether the email matches an account) so the UI flow works the same.
+export async function resetPassword() {}
+
+export async function changePassword(currentPassword, newPassword) {
+  const session = lsGet(SESSION_KEY, null)
+  if (!session) throw Object.assign(new Error('Not signed in'), { code: 'auth/no-current-user' })
+  const users = readUsers()
+  const idx = users.findIndex((u) => u.uid === session.uid)
+  if (idx === -1 || users[idx].password !== currentPassword)
+    throw Object.assign(new Error('Bad credentials'), { code: 'auth/wrong-password' })
+  const updated = [...users]
+  updated[idx] = { ...updated[idx], password: newPassword }
+  writeUsers(updated)
+}
+
+export async function changeDisplayName(displayName) {
+  const session = lsGet(SESSION_KEY, null)
+  if (!session) throw Object.assign(new Error('Not signed in'), { code: 'auth/no-current-user' })
+  const users = readUsers()
+  const idx = users.findIndex((u) => u.uid === session.uid)
+  if (idx !== -1) {
+    const updated = [...users]
+    updated[idx] = { ...updated[idx], displayName }
+    writeUsers(updated)
+  }
+  // lsSet triggers the subscription below, which re-notifies onAuthStateChanged
+  // listeners — so this alone keeps AuthContext's user in sync in local mode.
+  lsSet(SESSION_KEY, { ...session, displayName })
+}
+
+export function getCurrentUser() {
+  return lsGet(SESSION_KEY, null)
+}
+
 export async function signOut() {
   lsSet(SESSION_KEY, null)
 }

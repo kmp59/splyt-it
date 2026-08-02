@@ -33,10 +33,16 @@ export default function NavBar({ left }) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <span className="hidden sm:block text-sm text-slate-400 max-w-[140px] truncate">
-            {displayName}
-          </span>
-          <Avatar name={displayName} uid={user?.uid ?? ''} size="sm" />
+          <Link
+            to="/account"
+            title="Account settings"
+            className="flex items-center gap-2 rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-slate-800 transition-colors"
+          >
+            <span className="hidden sm:block text-sm text-slate-400 max-w-[140px] truncate">
+              {displayName}
+            </span>
+            <Avatar name={displayName} uid={user?.uid ?? ''} size="sm" />
+          </Link>
           <button
             onClick={handleLogout}
             title="Sign out"
