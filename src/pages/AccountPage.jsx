@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { ArrowLeft } from 'lucide-react'
 import { changePassword, changeDisplayName } from '../services/auth'
 import { useAuth, useRefreshUser } from '../context/AuthContext'

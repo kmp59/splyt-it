@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { LogOut } from 'lucide-react'
 import { signOut } from '../../services/auth'
 import { useAuth } from '../../context/AuthContext'

@@ -25,11 +25,43 @@ service cloud.firestore {
         && request.auth.uid in data.pendingMemberIds;
     }
 
-    // Existing members may edit anything except memberIds — membership can
-    // only grow via isSelfJoin/isSelfAccept, never a direct member write.
-    // Without this, any member could bypass the invite/accept flow entirely.
+    // Existing members may edit only a fixed allowlist of scalar settings
+    // fields — memberIds, createdBy, pendingMemberIds and memberEmails stay
+    // untouched here and can only change via the dedicated
+    // isSelfJoin/isSelfAccept/isSelfDecline/isGuestAdd/isMemberInvite paths
+    // below. Without this narrowing, any member could freely rewrite
+    // createdBy, totalExpenses, or invite state directly.
+    //
+    // pendingMemberIds/memberEmails are read via .get(key, []) rather than
+    // dot access — some groups predate the invite feature and have neither
+    // field set, and a direct `data.pendingMemberIds` on a missing key
+    // throws (denying the whole request) rather than just failing the check.
     function isMemberUpdate(data) {
-      return isMember(data) && request.resource.data.memberIds == data.memberIds;
+      return isMember(data)
+        && request.resource.data.memberIds == data.memberIds
+        && request.resource.data.createdBy == data.createdBy
+        && request.resource.data.get('pendingMemberIds', []) == data.get('pendingMemberIds', [])
+        && request.resource.data.get('memberEmails', []) == data.get('memberEmails', [])
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['name', 'totalExpenses', 'completed', 'archived'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.totalExpenses is number
+        && (!('completed' in request.resource.data) || request.resource.data.completed is bool)
+        && (!('archived' in request.resource.data) || request.resource.data.archived is bool);
+    }
+
+    // Narrow carve-out for addMemberToGroup(): a member may append at most
+    // one resolved uid to pendingMemberIds and one email to memberEmails
+    // (arrayUnion semantics — additive only, nothing may be removed). Uses
+    // .get(key, []) for the same missing-field reason as isMemberUpdate.
+    function isMemberInvite(data) {
+      return isMember(data)
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['pendingMemberIds', 'memberEmails'])
+        && data.get('pendingMemberIds', []).removeAll(request.resource.data.get('pendingMemberIds', [])).size() == 0
+        && request.resource.data.get('pendingMemberIds', []).removeAll(data.get('pendingMemberIds', [])).size() <= 1
+        && data.get('memberEmails', []).removeAll(request.resource.data.get('memberEmails', [])).size() == 0
+        && request.resource.data.get('memberEmails', []).removeAll(data.get('memberEmails', [])).size() <= 1;
     }
 
     // Narrow carve-out for addGuestToGroup(): a member may append exactly one
@@ -63,9 +95,32 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pendingMemberIds']);
     }
 
+    function groupData(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)).data;
+    }
+
     function isGroupMember(groupId) {
-      return isSignedIn()
-        && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+      return isSignedIn() && request.auth.uid in groupData(groupId).memberIds;
+    }
+
+    // Server-side shape/value validation for expense writes — the client
+    // (AddExpenseModal) already validates this, but rules are the only
+    // enforcement a malicious or buggy client can't bypass. Amount is
+    // capped, not just positive, to keep a single bad write from blowing up
+    // totalExpenses/balances for the whole group.
+    function isValidExpense(data, groupId) {
+      return data.description is string && data.description.size() > 0 && data.description.size() <= 200
+        && data.amount is number && data.amount > 0 && data.amount < 10000000
+        && data.paidBy is string && data.paidBy in groupData(groupId).memberIds
+        && data.splitType in ['equal', 'exact', 'percent']
+        && data.splits is map;
+    }
+
+    function isValidPayment(data, groupId) {
+      return data.from is string && data.from in groupData(groupId).memberIds
+        && data.to is string && data.to in groupData(groupId).memberIds
+        && data.from != data.to
+        && data.amount is number && data.amount > 0 && data.amount < 10000000;
     }
 
     // users: profile docs, keyed by uid. Lookup is by exact email only
@@ -75,19 +130,35 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isSignedIn();
       allow list: if false;
-      allow create: if isSignedIn();
+      // Two shapes only: a user creating their own profile doc (self-reg,
+      // ensureUserDoc/signUp), or a member creating a guest placeholder via
+      // addGuestToGroup (auto-generated id, isGuest == true, no email). This
+      // stops a signed-in user from pre-creating a fake, non-guest profile
+      // doc under someone else's uid.
+      allow create: if isSignedIn()
+        && ((userId == request.auth.uid
+             && request.resource.data.uid == request.auth.uid
+             && request.resource.data.email is string
+             && request.resource.data.displayName is string)
+            || (request.resource.data.isGuest == true
+                && request.resource.data.email == ''
+                && request.resource.data.displayName is string));
       allow update, delete: if isSignedIn() && request.auth.uid == userId;
     }
 
     // emailIndex: {normalizedEmail} -> { uid }. Lets resolveEmailsToUids()
     // resolve an invitee's email to a uid via get() instead of a `list`
     // query on /users, so /users can deny `list` outright. A user may only
-    // create/update the index entry that points at their own uid, so no one
-    // can claim or overwrite someone else's email mapping.
+    // create/update the index entry for their own authenticated email
+    // (matched against request.auth.token.email, case-insensitively) and
+    // pointing at their own uid — so no one can claim or overwrite another
+    // person's email mapping and hijack invites addressed to that email.
     match /emailIndex/{email} {
       allow get: if isSignedIn();
       allow list: if false;
-      allow create, update: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow create, update: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && email == request.auth.token.email.lower();
       allow delete: if false;
     }
 
@@ -113,15 +184,26 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.createdBy == request.auth.uid
         && request.auth.uid in request.resource.data.memberIds;
-      allow update: if isMemberUpdate(resource.data) || isGuestAdd(resource.data) || isSelfJoin() || isSelfAccept() || isSelfDecline();
+      allow update: if isMemberUpdate(resource.data) || isMemberInvite(resource.data) || isGuestAdd(resource.data) || isSelfJoin() || isSelfAccept() || isSelfDecline();
       allow delete: if false;
 
       match /expenses/{expenseId} {
-        allow read, write: if isGroupMember(groupId);
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId)
+          && isValidExpense(request.resource.data, groupId)
+          && request.resource.data.addedBy == request.auth.uid;
+        allow update: if isGroupMember(groupId)
+          && isValidExpense(request.resource.data, groupId)
+          && request.resource.data.addedBy == resource.data.addedBy;
+        allow delete: if isGroupMember(groupId);
       }
 
       match /payments/{paymentId} {
-        allow read, write: if isGroupMember(groupId);
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId) && isValidPayment(request.resource.data, groupId);
+        // App never edits or deletes a recorded payment — deny outright
+        // rather than leaving an unused write path open.
+        allow update, delete: if false;
       }
     }
   }

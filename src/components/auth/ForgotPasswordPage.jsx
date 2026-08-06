@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { resetPassword } from '../../services/auth'
 import Button from '../ui/Button'
 import LoadingSpinner from '../ui/LoadingSpinner'
