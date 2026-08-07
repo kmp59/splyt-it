@@ -137,7 +137,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
-      <NavBar />
+      <NavBar inviteCount={invites.length} />
 
       <main className="max-w-2xl mx-auto px-4 py-7 space-y-7">
         <div className="flex items-center justify-between">

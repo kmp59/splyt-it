@@ -12,6 +12,7 @@ export {
   reopenGroup,
   addGuestToGroup,
   addMemberToGroup,
+  removeMemberFromGroup,
   recordPayment,
   getPayments,
   getUserGroups,
@@ -22,6 +23,7 @@ export {
   deleteExpense,
   updateExpense,
   lookupUserByEmail,
+  getContacts,
 } from '../../utils/firestore'
 
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore'
