@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
-import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, UserMinus, ArrowLeftRight, ShieldPlus, ShieldMinus, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, completeGroup, archiveGroup, reopenGroup, getPayments } from '../services/db'
+import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, removeMember, mergeGuestIntoMember, promoteToAdmin, demoteAdmin, completeGroup, archiveGroup, reopenGroup, getPayments } from '../services/db'
 import { calculateBalances } from '../utils/balances'
 import NavBar from '../components/ui/NavBar'
+import Modal from '../components/ui/Modal'
 import Avatar from '../components/ui/Avatar'
 import Button from '../components/ui/Button'
 import EmptyState from '../components/ui/EmptyState'
@@ -47,6 +48,10 @@ export default function GroupPage() {
   const [showSettleUp, setShowSettleUp] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [archiving, setArchiving] = useState(false)
+  const [removingId, setRemovingId] = useState(null)
+  const [mergingGuestUid, setMergingGuestUid] = useState(null)
+  const [merging, setMerging] = useState(false)
+  const [adminChangingId, setAdminChangingId] = useState(null)
 
   // real-time group doc
   useEffect(() => {
@@ -162,6 +167,70 @@ export default function GroupPage() {
     }
   }
 
+  async function handleRemoveMember(uid, name, isSelf) {
+    const balance = balances[uid] ?? 0
+    if (Math.abs(balance) > 0.005) {
+      toast(`Settle up ${isSelf ? 'your' : `${name}'s`} balance before ${isSelf ? 'leaving' : 'removing them'}.`, 'error')
+      return
+    }
+    if (!confirm(isSelf ? 'Leave this group?' : `Remove ${name} from this group?`)) return
+    setRemovingId(uid)
+    try {
+      await removeMember(groupId, uid)
+      toast(isSelf ? 'You left the group.' : `${name} removed from group.`, 'success')
+    } catch (err) {
+      toast(
+        err.code === 'member/is-creator'
+          ? "The group owner can't be removed."
+          : isSelf ? 'Failed to leave group.' : 'Failed to remove member.',
+        'error'
+      )
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
+  async function handleMergeGuest(guestUid, guestName, targetUid, targetName) {
+    if (!confirm(`Merge ${guestName} (guest) into ${targetName}? All of ${guestName}'s expenses and payments become ${targetName}'s, and ${guestName} is removed. This can't be undone.`)) return
+    setMerging(true)
+    try {
+      await mergeGuestIntoMember(groupId, guestUid, targetUid)
+      refreshPayments() // merge can rewrite/delete payments — expenses refresh via live subscription, payments don't
+      toast(`${guestName} merged into ${targetName}.`, 'success')
+      setMergingGuestUid(null)
+    } catch {
+      toast('Failed to merge guest. Only group admins can do that.', 'error')
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  async function handlePromote(uid, name) {
+    setAdminChangingId(uid)
+    try {
+      await promoteToAdmin(groupId, uid)
+      toast(`${name} is now an admin.`, 'success')
+    } catch {
+      toast('Failed to make admin.', 'error')
+    } finally {
+      setAdminChangingId(null)
+    }
+  }
+
+  async function handleDemote(uid, name) {
+    const isSelf = uid === user?.uid
+    if (!confirm(isSelf ? 'Step down as admin?' : `Remove ${name} as an admin?`)) return
+    setAdminChangingId(uid)
+    try {
+      await demoteAdmin(groupId, uid)
+      toast(`${name} is no longer an admin.`, 'success')
+    } catch {
+      toast('Failed to remove admin.', 'error')
+    } finally {
+      setAdminChangingId(null)
+    }
+  }
+
   if (groupLoading) return <FullPageSpinner />
   if (!group) {
     return (
@@ -176,6 +245,10 @@ export default function GroupPage() {
   const pendingList = group.pendingMemberIds ?? []
   const hasExpenses = expenses.length > 0
   const myBalance = balances[user?.uid] ?? 0
+  const adminIds = group.adminIds ?? []
+  const isAdmin = (uid) => uid === group.createdBy || adminIds.includes(uid)
+  const iAmCreator = user?.uid === group.createdBy
+  const iAmAdmin = isAdmin(user?.uid)
 
   const navLeft = (
     <div className="flex items-center gap-2 min-w-0">
@@ -276,12 +349,78 @@ export default function GroupPage() {
             {memberList.map((uid) => {
               const profile = members[uid]
               const name = profile?.displayName ?? profile?.email ?? uid
+              const isSelf = uid === user?.uid
+              const isTargetCreator = uid === group.createdBy
+              const isTargetAdmin = isAdmin(uid)
+              const canRemove = !isTargetCreator && memberList.length > 1 && (isSelf || iAmCreator)
+              // Promoting is creator-only (matches isAdminGrant) — a
+              // deliberate, single-point-of-trust decision. Demoting is
+              // wider (matches isAdminRevoke): the creator or any current
+              // admin can undo a bad promotion, including stepping down
+              // themselves. Neither ever applies to the creator (their admin
+              // status comes from being createdBy, not adminIds) or to a
+              // guest (no login to perform an admin action with).
+              const canPromote = iAmCreator && !isTargetCreator && !isTargetAdmin && !profile?.isGuest
+              const canDemote = iAmAdmin && !isTargetCreator && isTargetAdmin && !profile?.isGuest
               return (
                 <div key={uid} className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
                   <Avatar name={name} uid={uid} size="sm" />
-                  <span className="text-sm text-slate-300">{uid === user?.uid ? 'You' : name}</span>
+                  <span className="text-sm text-slate-300">{isSelf ? 'You' : name}</span>
+                  {isTargetCreator && (
+                    <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none">owner</span>
+                  )}
+                  {!isTargetCreator && isTargetAdmin && (
+                    <span className="text-[10px] font-medium text-green-400 bg-green-950/60 border border-green-800/50 rounded-md px-1.5 py-0.5 leading-none">admin</span>
+                  )}
                   {profile?.isGuest && (
                     <span className="text-[10px] font-medium text-slate-500 bg-slate-800 border border-slate-700 rounded-md px-1.5 py-0.5 leading-none">guest</span>
+                  )}
+                  {profile?.isGuest && iAmAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setMergingGuestUid(uid)}
+                      className="text-slate-500 hover:text-green-400 transition-colors"
+                      aria-label={`Merge ${name} into a real member`}
+                      title={`Merge ${name} into a real member`}
+                    >
+                      <ArrowLeftRight size={14} />
+                    </button>
+                  )}
+                  {canPromote && (
+                    <button
+                      type="button"
+                      onClick={() => handlePromote(uid, name)}
+                      disabled={adminChangingId === uid}
+                      className="text-slate-500 hover:text-green-400 transition-colors disabled:opacity-50"
+                      aria-label={`Make ${name} an admin`}
+                      title={`Make ${name} an admin`}
+                    >
+                      <ShieldPlus size={14} />
+                    </button>
+                  )}
+                  {canDemote && (
+                    <button
+                      type="button"
+                      onClick={() => handleDemote(uid, name)}
+                      disabled={adminChangingId === uid}
+                      className="text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                      aria-label={isSelf ? 'Step down as admin' : `Remove ${name} as admin`}
+                      title={isSelf ? 'Step down as admin' : `Remove ${name} as admin`}
+                    >
+                      <ShieldMinus size={14} />
+                    </button>
+                  )}
+                  {canRemove && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMember(uid, name, isSelf)}
+                      disabled={removingId === uid}
+                      className="text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                      aria-label={isSelf ? 'Leave group' : `Remove ${name}`}
+                      title={isSelf ? 'Leave group' : `Remove ${name}`}
+                    >
+                      <UserMinus size={14} />
+                    </button>
                   )}
                 </div>
               )
@@ -588,6 +727,41 @@ export default function GroupPage() {
           onClose={() => { setShowSettleUp(false); refreshPayments() }}
         />
       )}
+
+      {mergingGuestUid && (() => {
+        const guestName = members[mergingGuestUid]?.displayName ?? mergingGuestUid
+        const targets = memberList.filter((uid) => uid !== mergingGuestUid && !members[uid]?.isGuest)
+        return (
+          <Modal title={`Merge ${guestName}`} onClose={() => setMergingGuestUid(null)} size="sm">
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-400">
+                Pick the real member {guestName} turned out to be. Their expenses and payments move over, and {guestName} is removed.
+              </p>
+              {targets.length === 0 ? (
+                <p className="text-sm text-slate-500">No other members to merge into yet — invite the real person and wait for them to accept first.</p>
+              ) : (
+                <div className="space-y-2">
+                  {targets.map((uid) => {
+                    const targetName = uid === user?.uid ? 'You' : (members[uid]?.displayName ?? members[uid]?.email ?? uid)
+                    return (
+                      <button
+                        key={uid}
+                        type="button"
+                        disabled={merging}
+                        onClick={() => handleMergeGuest(mergingGuestUid, guestName, uid, targetName)}
+                        className="w-full flex items-center gap-2.5 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-left transition-colors disabled:opacity-50"
+                      >
+                        <Avatar name={targetName} uid={uid} size="sm" />
+                        <span className="text-sm text-white">{targetName}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
     </div>
   )
 }
