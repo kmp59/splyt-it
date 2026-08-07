@@ -114,6 +114,13 @@ export async function addMemberToGroup(groupId, email) {
   })
 }
 
+export async function removeMemberFromGroup(groupId, uid) {
+  await updateDoc(doc(db, 'groups', groupId), {
+    memberIds: arrayRemove(uid),
+    pendingMemberIds: arrayRemove(uid),
+  })
+}
+
 export async function getUserGroups(uid) {
   const q = query(collection(db, 'groups'), where('memberIds', 'array-contains', uid))
   const snap = await getDocs(q)

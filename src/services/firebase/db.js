@@ -12,6 +12,7 @@ export {
   reopenGroup,
   addGuestToGroup,
   addMemberToGroup,
+  removeMemberFromGroup,
   recordPayment,
   getPayments,
   getUserGroups,

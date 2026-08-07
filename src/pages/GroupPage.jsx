@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
-import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, UserMinus, RotateCcw } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, completeGroup, archiveGroup, reopenGroup, getPayments } from '../services/db'
+import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, removeMemberFromGroup, completeGroup, archiveGroup, reopenGroup, getPayments } from '../services/db'
 import { calculateBalances } from '../utils/balances'
 import NavBar from '../components/ui/NavBar'
 import Avatar from '../components/ui/Avatar'
@@ -43,6 +43,7 @@ export default function GroupPage() {
   const [addMemberMode, setAddMemberMode] = useState('email')
   const [addingMember, setAddingMember] = useState(false)
   const [showAddMember, setShowAddMember] = useState(false)
+  const [removingMemberId, setRemovingMemberId] = useState(null)
   const [selectedExpense, setSelectedExpense] = useState(null)
   const [showSettleUp, setShowSettleUp] = useState(false)
   const [completing, setCompleting] = useState(false)
@@ -117,6 +118,24 @@ export default function GroupPage() {
       toast('Failed to add guest.', 'error')
     } finally {
       setAddingMember(false)
+    }
+  }
+
+  async function handleRemoveMember(uid, name) {
+    const balance = calculateBalances(expenses, payments)[uid] ?? 0
+    if (Math.abs(balance) > 0.005) {
+      toast(`${name} still has an outstanding balance — settle up before removing them.`, 'error')
+      return
+    }
+    if (!confirm(`Remove ${name} from this group?`)) return
+    setRemovingMemberId(uid)
+    try {
+      await removeMemberFromGroup(groupId, uid)
+      toast(`${name} removed from the group.`, 'success')
+    } catch {
+      toast('Failed to remove member.', 'error')
+    } finally {
+      setRemovingMemberId(null)
     }
   }
 
@@ -276,12 +295,24 @@ export default function GroupPage() {
             {memberList.map((uid) => {
               const profile = members[uid]
               const name = profile?.displayName ?? profile?.email ?? uid
+              const isSelf = uid === user?.uid
+              const canRemove = !isSelf && !group.archived
               return (
                 <div key={uid} className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
                   <Avatar name={name} uid={uid} size="sm" />
-                  <span className="text-sm text-slate-300">{uid === user?.uid ? 'You' : name}</span>
+                  <span className="text-sm text-slate-300">{isSelf ? 'You' : name}</span>
                   {profile?.isGuest && (
                     <span className="text-[10px] font-medium text-slate-500 bg-slate-800 border border-slate-700 rounded-md px-1.5 py-0.5 leading-none">guest</span>
+                  )}
+                  {canRemove && (
+                    <button
+                      onClick={() => handleRemoveMember(uid, name)}
+                      disabled={removingMemberId === uid}
+                      className="w-6 h-6 -mr-1 flex items-center justify-center rounded-md text-slate-600 hover:text-red-400 hover:bg-slate-800 transition-colors disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                      title={`Remove ${name}`}
+                    >
+                      <UserMinus size={13} />
+                    </button>
                   )}
                 </div>
               )

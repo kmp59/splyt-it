@@ -16,6 +16,7 @@ export const archiveGroup      = impl.archiveGroup
 export const reopenGroup       = impl.reopenGroup
 export const addGuestToGroup   = impl.addGuestToGroup
 export const addMemberToGroup  = impl.addMemberToGroup
+export const removeMemberFromGroup = impl.removeMemberFromGroup
 export const recordPayment     = impl.recordPayment
 export const getPayments       = impl.getPayments
 export const getUserGroups     = impl.getUserGroups

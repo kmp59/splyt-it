@@ -214,6 +214,18 @@ export async function addMemberToGroup(groupId, email) {
   }
 }
 
+export async function removeMemberFromGroup(groupId, uid) {
+  const groups = readGroups()
+  const idx = groups.findIndex((g) => g.id === groupId)
+  if (idx === -1) throw new Error('Group not found')
+  groups[idx] = {
+    ...groups[idx],
+    memberIds: groups[idx].memberIds.filter((id) => id !== uid),
+    pendingMemberIds: (groups[idx].pendingMemberIds ?? []).filter((id) => id !== uid),
+  }
+  writeGroups(groups)
+}
+
 export async function getUserGroups(uid) {
   return readGroups().filter((g) => g.memberIds?.includes(uid))
 }
