@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
-import { createGroup, lookupUserByEmail } from '../../services/db'
+import { createGroup, lookupUserByEmail, getContacts } from '../../services/db'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import Avatar from '../ui/Avatar'
@@ -19,6 +19,33 @@ export default function CreateGroupModal({ onClose, onCreated }) {
   const [looking, setLooking] = useState(false)
   const [selected, setSelected] = useState([])
   const [loading, setLoading] = useState(false)
+  const [contacts, setContacts] = useState([])
+
+  // Suggestions are drawn from people you already share a group with, not a
+  // directory search — /users can't be queried by partial name (see
+  // firestore.rules), so this is the only enumerable set. Someone not yet a
+  // contact still needs the exact-email fallback below.
+  useEffect(() => {
+    let cancelled = false
+    getContacts(user.uid)
+      .then((c) => {
+        if (!cancelled) setContacts(c)
+      })
+      .catch((err) => console.error(err))
+    return () => {
+      cancelled = true
+    }
+  }, [user.uid])
+
+  const term = query.trim().toLowerCase()
+  const suggestions = term
+    ? contacts
+        .filter((c) => !selected.some((s) => s.uid === c.uid))
+        .filter(
+          (c) => c.displayName?.toLowerCase().includes(term) || c.email?.toLowerCase().includes(term)
+        )
+        .slice(0, 5)
+    : []
 
   async function handleLookup(e) {
     e.preventDefault()
@@ -113,26 +140,50 @@ export default function CreateGroupModal({ onClose, onCreated }) {
             </div>
           )}
 
-          <div className="flex gap-2">
-            <input
-              type="email"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setLookupError('')
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  handleLookup(e)
-                }
-              }}
-              className={INPUT_CLS}
-              placeholder="Enter their exact email"
-            />
-            <Button type="button" variant="secondary" onClick={handleLookup} disabled={looking || !query.trim()}>
-              {looking ? <LoadingSpinner size="sm" /> : 'Add'}
-            </Button>
+          <div className="relative">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setLookupError('')
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (suggestions.length > 0) {
+                      addMember(suggestions[0])
+                    } else {
+                      handleLookup(e)
+                    }
+                  }
+                }}
+                className={INPUT_CLS}
+                placeholder="Search name/email, or enter their exact email"
+              />
+              <Button type="button" variant="secondary" onClick={handleLookup} disabled={looking || !query.trim()}>
+                {looking ? <LoadingSpinner size="sm" /> : 'Add'}
+              </Button>
+            </div>
+
+            {suggestions.length > 0 && (
+              <ul className="absolute z-10 left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
+                {suggestions.map((c) => (
+                  <li key={c.uid}>
+                    <button
+                      type="button"
+                      onClick={() => addMember(c)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-slate-700"
+                    >
+                      <Avatar name={c.displayName} uid={c.uid} size="xs" />
+                      <span className="truncate">{c.displayName}</span>
+                      <span className="text-slate-500 text-xs truncate">{c.email}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           {lookupError && <p className="text-xs text-red-400 mt-1.5">{lookupError}</p>}
           <p className="text-xs text-slate-500 mt-1.5">

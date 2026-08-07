@@ -344,6 +344,25 @@ export async function getGroupMembers(memberIds) {
   )
 }
 
+// "Contacts" for the invite-search box: everyone the caller already shares
+// an accepted group with — mirrors the Firebase impl's scoping (see
+// services/firebase/db.js / utils/firestore.js) rather than a full directory
+// search across every local user.
+export async function getContacts(uid) {
+  const groups = readGroups().filter((g) => g.memberIds?.includes(uid))
+  const uids = new Set()
+  groups.forEach((g) => {
+    (g.memberIds ?? []).forEach((id) => {
+      if (id !== uid) uids.add(id)
+    })
+  })
+  const users = readUsers()
+  return [...uids]
+    .map((id) => users.find((u) => u.uid === id))
+    .filter((u) => u && !u.isGuest)
+    .map((u) => ({ uid: u.uid, displayName: u.displayName, email: u.email }))
+}
+
 // ---------------------------------------------------------------------------
 // Expenses
 // ---------------------------------------------------------------------------

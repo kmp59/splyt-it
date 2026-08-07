@@ -6,7 +6,7 @@ import Avatar from './Avatar'
 
 const IS_LOCAL = import.meta.env.VITE_DATA_MODE === 'local'
 
-export default function NavBar({ left }) {
+export default function NavBar({ left, inviteCount = 0 }) {
   const user = useAuth()
   const navigate = useNavigate()
   const displayName = user?.displayName || user?.email?.split('@')[0] || ''
@@ -26,8 +26,16 @@ export default function NavBar({ left }) {
       <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           {left ?? (
-            <Link to="/dashboard" className="text-lg font-bold text-white shrink-0">
+            <Link to="/dashboard" className="flex items-center gap-1.5 text-lg font-bold text-white shrink-0">
               splyt<span className="text-green-400">-it</span>
+              {inviteCount > 0 && (
+                <span
+                  title={`${inviteCount} pending invite${inviteCount === 1 ? '' : 's'}`}
+                  className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-slate-950 text-[10px] font-bold leading-none"
+                >
+                  {inviteCount}
+                </span>
+              )}
             </Link>
           )}
         </div>

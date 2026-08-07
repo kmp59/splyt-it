@@ -26,6 +26,7 @@ export const getUserGroups     = impl.getUserGroups
 export const getGroupById      = impl.getGroupById
 export const getGroupMembers   = impl.getGroupMembers
 export const lookupUserByEmail = impl.lookupUserByEmail
+export const getContacts       = impl.getContacts
 export const addExpense        = impl.addExpense
 export const getExpenses       = impl.getExpenses
 export const deleteExpense     = impl.deleteExpense

@@ -264,6 +264,28 @@ export async function getGroupMembers(memberIds) {
   return profiles
 }
 
+// "Contacts" for the invite-search box in CreateGroupModal: everyone the
+// caller already shares an accepted group with. This is intentionally NOT a
+// directory search — /users denies `list` (see firestore.rules) so no
+// signed-in user can enumerate the full user base by partial name/email.
+// This instead reuses the existing per-doc get() path (getGroupMembers),
+// scoped to uids the caller can already see via their own group memberships.
+export async function getContacts(uid) {
+  const groups = await getUserGroups(uid)
+  const uids = new Set()
+  groups.forEach((g) => {
+    ;(g.memberIds ?? []).forEach((id) => {
+      if (id !== uid) uids.add(id)
+    })
+  })
+  if (!uids.size) return []
+
+  const profiles = await getGroupMembers([...uids])
+  return Object.entries(profiles)
+    .filter(([, p]) => !p.isGuest)
+    .map(([id, p]) => ({ uid: id, displayName: p.displayName, email: p.email }))
+}
+
 export async function addExpense(groupId, expense) {
   const ref = await addDoc(collection(db, 'groups', groupId, 'expenses'), {
     ...expense,

@@ -352,7 +352,7 @@ export default function GroupPage() {
               const isSelf = uid === user?.uid
               const isTargetCreator = uid === group.createdBy
               const isTargetAdmin = isAdmin(uid)
-              const canRemove = !isTargetCreator && memberList.length > 1 && (isSelf || iAmCreator)
+              const canRemove = !isTargetCreator && !group.archived && memberList.length > 1 && (isSelf || iAmCreator)
               // Promoting is creator-only (matches isAdminGrant) — a
               // deliberate, single-point-of-trust decision. Demoting is
               // wider (matches isAdminRevoke): the creator or any current
@@ -360,8 +360,8 @@ export default function GroupPage() {
               // themselves. Neither ever applies to the creator (their admin
               // status comes from being createdBy, not adminIds) or to a
               // guest (no login to perform an admin action with).
-              const canPromote = iAmCreator && !isTargetCreator && !isTargetAdmin && !profile?.isGuest
-              const canDemote = iAmAdmin && !isTargetCreator && isTargetAdmin && !profile?.isGuest
+              const canPromote = iAmCreator && !isTargetCreator && !isTargetAdmin && !profile?.isGuest && !group.archived
+              const canDemote = iAmAdmin && !isTargetCreator && isTargetAdmin && !profile?.isGuest && !group.archived
               return (
                 <div key={uid} className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
                   <Avatar name={name} uid={uid} size="sm" />
@@ -375,7 +375,7 @@ export default function GroupPage() {
                   {profile?.isGuest && (
                     <span className="text-[10px] font-medium text-slate-500 bg-slate-800 border border-slate-700 rounded-md px-1.5 py-0.5 leading-none">guest</span>
                   )}
-                  {profile?.isGuest && iAmAdmin && (
+                  {profile?.isGuest && iAmAdmin && !group.archived && (
                     <button
                       type="button"
                       onClick={() => setMergingGuestUid(uid)}
