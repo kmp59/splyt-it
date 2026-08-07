@@ -50,9 +50,9 @@ export function calculatePairwiseSettlements(expenses, members, payments = []) {
       const net = aOwesB - bOwesA
 
       if (net > 0.005) {
-        settlements.push({ from: a, fromName: members[a]?.displayName ?? a, to: b, toName: members[b]?.displayName ?? b, amount: Math.round(net * 100) / 100 })
+        settlements.push({ from: a, fromName: members[a]?.displayName ?? 'Member', to: b, toName: members[b]?.displayName ?? 'Member', amount: Math.round(net * 100) / 100 })
       } else if (net < -0.005) {
-        settlements.push({ from: b, fromName: members[b]?.displayName ?? b, to: a, toName: members[a]?.displayName ?? a, amount: Math.round(-net * 100) / 100 })
+        settlements.push({ from: b, fromName: members[b]?.displayName ?? 'Member', to: a, toName: members[a]?.displayName ?? 'Member', amount: Math.round(-net * 100) / 100 })
       }
     }
   }
@@ -84,9 +84,9 @@ export function calculateSettlements(balances, members) {
 
     settlements.push({
       from: debtor.uid,
-      fromName: members[debtor.uid]?.displayName ?? debtor.uid,
+      fromName: members[debtor.uid]?.displayName ?? 'Member',
       to: creditor.uid,
-      toName: members[creditor.uid]?.displayName ?? creditor.uid,
+      toName: members[creditor.uid]?.displayName ?? 'Member',
       amount: Math.round(amount * 100) / 100,
     })
 

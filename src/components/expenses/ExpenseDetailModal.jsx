@@ -109,7 +109,7 @@ export default function ExpenseDetailModal({ expense, members, onClose }) {
           <div className="space-y-2">
             {splitEntries.map(([uid, share]) => {
               const profile = members[uid]
-              const name = profile?.displayName ?? uid
+              const name = profile?.displayName ?? profile?.email ?? 'Member'
               const isPayer = uid === paidBy
               const isYou = uid === user?.uid
               const pct = totalSplit > 0 ? (share / totalSplit) * 100 : 0

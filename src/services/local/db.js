@@ -275,7 +275,7 @@ export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
   if (!groups[idx].memberIds.includes(targetUid)) {
     throw Object.assign(new Error('Target is not a member of this group'), { code: 'merge/target-not-member' })
   }
-  const targetName = target?.displayName ?? targetUid
+  const targetName = target?.displayName ?? target?.email ?? 'Member'
 
   writeExp(
     groupId,
@@ -339,7 +339,7 @@ export async function getGroupMembers(memberIds) {
     memberIds.map((uid) => {
       const u = users.find((u) => u.uid === uid)
       return [uid, u ? { uid, displayName: u.displayName, email: u.email, isGuest: !!u.isGuest }
-                     : { uid, displayName: `User ${uid.slice(0, 6)}`, email: '' }]
+                     : { uid, displayName: 'Member', email: '' }]
     })
   )
 }

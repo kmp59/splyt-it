@@ -348,7 +348,7 @@ export default function GroupPage() {
           <div className="flex flex-wrap gap-2.5">
             {memberList.map((uid) => {
               const profile = members[uid]
-              const name = profile?.displayName ?? profile?.email ?? uid
+              const name = profile?.displayName ?? profile?.email ?? 'Member'
               const isSelf = uid === user?.uid
               const isTargetCreator = uid === group.createdBy
               const isTargetAdmin = isAdmin(uid)
@@ -433,7 +433,7 @@ export default function GroupPage() {
               <div className="flex flex-wrap gap-2.5 mt-1.5">
                 {pendingList.map((uid) => {
                   const profile = members[uid]
-                  const name = profile?.displayName ?? profile?.email ?? uid
+                  const name = profile?.displayName ?? profile?.email ?? 'Member'
                   return (
                     <div key={uid} className="flex items-center gap-2 bg-slate-900/50 border border-dashed border-slate-700 rounded-xl px-3 py-2 opacity-70">
                       <Avatar name={name} uid={uid} size="sm" />
@@ -614,7 +614,7 @@ export default function GroupPage() {
                   .sort((a, b) => (spending[b] ?? 0) - (spending[a] ?? 0))
                   .map((uid, i) => {
                     const spent = spending[uid] ?? 0
-                    const name = members[uid]?.displayName ?? members[uid]?.email ?? uid
+                    const name = members[uid]?.displayName ?? members[uid]?.email ?? 'Member'
                     const isYou = uid === user?.uid
                     return (
                       <div key={uid} className={clsx(
@@ -668,7 +668,7 @@ export default function GroupPage() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 mb-4">
                 {memberList.map((uid) => {
                   const balance = balances[uid] ?? 0
-                  const name = members[uid]?.displayName ?? members[uid]?.email ?? uid
+                  const name = members[uid]?.displayName ?? members[uid]?.email ?? 'Member'
                   const isYou = uid === user?.uid
                   return (
                     <div key={uid} className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5">
@@ -729,7 +729,7 @@ export default function GroupPage() {
       )}
 
       {mergingGuestUid && (() => {
-        const guestName = members[mergingGuestUid]?.displayName ?? mergingGuestUid
+        const guestName = members[mergingGuestUid]?.displayName ?? 'Member'
         const targets = memberList.filter((uid) => uid !== mergingGuestUid && !members[uid]?.isGuest)
         return (
           <Modal title={`Merge ${guestName}`} onClose={() => setMergingGuestUid(null)} size="sm">
@@ -742,7 +742,7 @@ export default function GroupPage() {
               ) : (
                 <div className="space-y-2">
                   {targets.map((uid) => {
-                    const targetName = uid === user?.uid ? 'You' : (members[uid]?.displayName ?? members[uid]?.email ?? uid)
+                    const targetName = uid === user?.uid ? 'You' : (members[uid]?.displayName ?? members[uid]?.email ?? 'Member')
                     return (
                       <button
                         key={uid}

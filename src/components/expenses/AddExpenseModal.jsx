@@ -210,12 +210,12 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
               {/* Member list */}
               <div className="max-h-44 overflow-y-auto overscroll-contain">
                 {memberList
-                  .filter(([uid, profile]) => {
-                    const name = profile.displayName ?? profile.email ?? uid
+                  .filter(([, profile]) => {
+                    const name = profile.displayName ?? profile.email ?? 'Member'
                     return name.toLowerCase().includes(paidBySearch.toLowerCase())
                   })
                   .map(([uid, profile]) => {
-                    const name = profile.displayName ?? profile.email ?? uid
+                    const name = profile.displayName ?? profile.email ?? 'Member'
                     const isSelected = paidBy === uid
                     return (
                       <button
@@ -256,7 +256,7 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
           </div>
           <div className="flex flex-wrap gap-2">
             {memberList.map(([uid, profile]) => {
-              const name = profile.displayName ?? profile.email ?? uid
+              const name = profile.displayName ?? profile.email ?? 'Member'
               const selected = splitWith.has(uid)
               return (
                 <button key={uid} type="button" onClick={() => toggleSplitWith(uid)}
@@ -294,7 +294,7 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
         {splitType === 'equal' && parsedAmount > 0 && (
           <div className="space-y-1.5">
             {splitMembers.map(([uid, profile]) => {
-              const name = profile.displayName ?? profile.email ?? uid
+              const name = profile.displayName ?? profile.email ?? 'Member'
               return (
                 <div key={uid} className="flex items-center justify-between text-sm bg-slate-800/60 rounded-xl px-4 py-2.5">
                   <div className="flex items-center gap-2">
@@ -312,7 +312,7 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
         {splitType === 'exact' && (
           <div className="space-y-2">
             {splitMembers.map(([uid, profile]) => {
-              const name = profile.displayName ?? profile.email ?? uid
+              const name = profile.displayName ?? profile.email ?? 'Member'
               return (
                 <div key={uid} className="flex items-center gap-3">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -341,7 +341,7 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
         {splitType === 'percent' && (
           <div className="space-y-2">
             {splitMembers.map(([uid, profile]) => {
-              const name = profile.displayName ?? profile.email ?? uid
+              const name = profile.displayName ?? profile.email ?? 'Member'
               return (
                 <div key={uid} className="flex items-center gap-3">
                   <div className="flex items-center gap-2 flex-1 min-w-0">

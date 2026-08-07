@@ -168,7 +168,7 @@ export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
   if (!groupSnap.exists() || !(groupSnap.data().memberIds ?? []).includes(targetUid)) {
     throw Object.assign(new Error('Target is not a member of this group'), { code: 'merge/target-not-member' })
   }
-  const targetName = targetSnap.exists() ? targetSnap.data().displayName : targetUid
+  const targetName = targetSnap.exists() ? (targetSnap.data().displayName ?? targetSnap.data().email ?? 'Member') : 'Member'
 
   const [expensesSnap, paymentsSnap] = await Promise.all([
     getDocs(collection(db, 'groups', groupId, 'expenses')),
@@ -258,7 +258,7 @@ export async function getGroupMembers(memberIds) {
       const snap = await getDoc(doc(db, 'users', uid))
       profiles[uid] = snap.exists()
         ? snap.data()
-        : { uid, displayName: `User ${uid.slice(0, 6)}`, email: '' }
+        : { uid, displayName: 'Member', email: '' }
     })
   )
   return profiles
