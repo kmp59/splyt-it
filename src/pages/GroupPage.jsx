@@ -50,6 +50,7 @@ export default function GroupPage() {
   const [archiving, setArchiving] = useState(false)
   const [removingId, setRemovingId] = useState(null)
   const [mergingGuestUid, setMergingGuestUid] = useState(null)
+  const [actionMemberUid, setActionMemberUid] = useState(null)
   const [merging, setMerging] = useState(false)
   const [adminChangingId, setAdminChangingId] = useState(null)
 
@@ -250,6 +251,24 @@ export default function GroupPage() {
   const iAmCreator = user?.uid === group.createdBy
   const iAmAdmin = isAdmin(user?.uid)
 
+  function getMemberActionInfo(uid) {
+    const profile = members[uid]
+    const name = profile?.displayName ?? profile?.email ?? 'Member'
+    const isSelf = uid === user?.uid
+    const isTargetCreator = uid === group.createdBy
+    const isTargetAdmin = isAdmin(uid)
+    const canRemove = !isTargetCreator && !group.archived && memberList.length > 1 && (isSelf || iAmCreator)
+    // Promoting/demoting is available to the owner and any current admin —
+    // a deliberate trust circle wider than creator-only. Neither ever
+    // applies to the creator (their admin status comes from being
+    // createdBy, not adminIds) or to a guest (no login to perform an admin
+    // action with).
+    const canPromote = iAmAdmin && !isTargetCreator && !isTargetAdmin && !profile?.isGuest && !group.archived
+    const canDemote = iAmAdmin && !isTargetCreator && isTargetAdmin && !profile?.isGuest && !group.archived
+    const canMerge = profile?.isGuest && iAmAdmin && !group.archived
+    return { profile, name, isSelf, isTargetCreator, isTargetAdmin, canRemove, canPromote, canDemote, canMerge }
+  }
+
   const navLeft = (
     <div className="flex items-center gap-2 min-w-0">
       <Link
@@ -345,83 +364,37 @@ export default function GroupPage() {
             </button>
           </div>
 
-          <div className="flex flex-wrap gap-2.5">
+          <div className="flex flex-wrap gap-4">
             {memberList.map((uid) => {
-              const profile = members[uid]
-              const name = profile?.displayName ?? profile?.email ?? 'Member'
-              const isSelf = uid === user?.uid
-              const isTargetCreator = uid === group.createdBy
-              const isTargetAdmin = isAdmin(uid)
-              const canRemove = !isTargetCreator && !group.archived && memberList.length > 1 && (isSelf || iAmCreator)
-              // Promoting is creator-only (matches isAdminGrant) — a
-              // deliberate, single-point-of-trust decision. Demoting is
-              // wider (matches isAdminRevoke): the creator or any current
-              // admin can undo a bad promotion, including stepping down
-              // themselves. Neither ever applies to the creator (their admin
-              // status comes from being createdBy, not adminIds) or to a
-              // guest (no login to perform an admin action with).
-              const canPromote = iAmCreator && !isTargetCreator && !isTargetAdmin && !profile?.isGuest && !group.archived
-              const canDemote = iAmAdmin && !isTargetCreator && isTargetAdmin && !profile?.isGuest && !group.archived
+              const { profile, name, isSelf, isTargetCreator, isTargetAdmin, canRemove, canPromote, canDemote, canMerge } =
+                getMemberActionInfo(uid)
+              const hasActions = canMerge || canPromote || canDemote || canRemove
               return (
-                <div key={uid} className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
-                  <Avatar name={name} uid={uid} size="sm" />
-                  <span className="text-sm text-slate-300">{isSelf ? 'You' : name}</span>
-                  {isTargetCreator && (
-                    <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none">owner</span>
-                  )}
-                  {!isTargetCreator && isTargetAdmin && (
-                    <span className="text-[10px] font-medium text-green-400 bg-green-950/60 border border-green-800/50 rounded-md px-1.5 py-0.5 leading-none">admin</span>
-                  )}
-                  {profile?.isGuest && (
-                    <span className="text-[10px] font-medium text-slate-500 bg-slate-800 border border-slate-700 rounded-md px-1.5 py-0.5 leading-none">guest</span>
-                  )}
-                  {profile?.isGuest && iAmAdmin && !group.archived && (
-                    <button
-                      type="button"
-                      onClick={() => setMergingGuestUid(uid)}
-                      className="text-slate-500 hover:text-green-400 transition-colors"
-                      aria-label={`Merge ${name} into a real member`}
-                      title={`Merge ${name} into a real member`}
-                    >
-                      <ArrowLeftRight size={14} />
-                    </button>
-                  )}
-                  {canPromote && (
-                    <button
-                      type="button"
-                      onClick={() => handlePromote(uid, name)}
-                      disabled={adminChangingId === uid}
-                      className="text-slate-500 hover:text-green-400 transition-colors disabled:opacity-50"
-                      aria-label={`Make ${name} an admin`}
-                      title={`Make ${name} an admin`}
-                    >
-                      <ShieldPlus size={14} />
-                    </button>
-                  )}
-                  {canDemote && (
-                    <button
-                      type="button"
-                      onClick={() => handleDemote(uid, name)}
-                      disabled={adminChangingId === uid}
-                      className="text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
-                      aria-label={isSelf ? 'Step down as admin' : `Remove ${name} as admin`}
-                      title={isSelf ? 'Step down as admin' : `Remove ${name} as admin`}
-                    >
-                      <ShieldMinus size={14} />
-                    </button>
-                  )}
-                  {canRemove && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveMember(uid, name, isSelf)}
-                      disabled={removingId === uid}
-                      className="text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
-                      aria-label={isSelf ? 'Leave group' : `Remove ${name}`}
-                      title={isSelf ? 'Leave group' : `Remove ${name}`}
-                    >
-                      <UserMinus size={14} />
-                    </button>
-                  )}
+                <div key={uid} className="flex flex-col items-center gap-1.5 w-20">
+                  <button
+                    type="button"
+                    onClick={() => hasActions && setActionMemberUid(uid)}
+                    disabled={!hasActions}
+                    className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 disabled:cursor-default"
+                    aria-label={hasActions ? `Actions for ${name}` : name}
+                    title={hasActions ? `Actions for ${name}` : name}
+                  >
+                    <Avatar name={name} uid={uid} size="lg" status={profile?.isGuest ? 'guest' : 'member'} />
+                  </button>
+                  <span className="text-xs text-slate-300 text-center leading-tight break-words w-full">
+                    {isSelf ? 'You' : name}
+                  </span>
+                  <div className="flex flex-wrap justify-center gap-1">
+                    {isTargetCreator && (
+                      <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none">owner</span>
+                    )}
+                    {!isTargetCreator && isTargetAdmin && (
+                      <span className="text-[10px] font-medium text-green-400 bg-green-950/60 border border-green-800/50 rounded-md px-1.5 py-0.5 leading-none">admin</span>
+                    )}
+                    {profile?.isGuest && (
+                      <span className="text-[10px] font-medium text-slate-500 bg-slate-800 border border-slate-700 rounded-md px-1.5 py-0.5 leading-none">guest</span>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -430,14 +403,16 @@ export default function GroupPage() {
           {pendingList.length > 0 && (
             <div className="mt-3">
               <span className="text-[11px] text-slate-500 uppercase tracking-wide">Pending invites</span>
-              <div className="flex flex-wrap gap-2.5 mt-1.5">
+              <div className="flex flex-wrap gap-4 mt-1.5">
                 {pendingList.map((uid) => {
                   const profile = members[uid]
                   const name = profile?.displayName ?? profile?.email ?? 'Member'
                   return (
-                    <div key={uid} className="flex items-center gap-2 bg-slate-900/50 border border-dashed border-slate-700 rounded-xl px-3 py-2 opacity-70">
-                      <Avatar name={name} uid={uid} size="sm" />
-                      <span className="text-sm text-slate-400">{name}</span>
+                    <div key={uid} className="flex flex-col items-center gap-1.5 w-20 opacity-70">
+                      <Avatar name={name} uid={uid} size="lg" />
+                      <span className="text-xs text-slate-400 text-center leading-tight break-words w-full">
+                        {name}
+                      </span>
                       <span className="text-[10px] font-medium text-amber-400 bg-amber-950/60 border border-amber-800/50 rounded-md px-1.5 py-0.5 leading-none">invited</span>
                     </div>
                   )
@@ -727,6 +702,65 @@ export default function GroupPage() {
           onClose={() => { setShowSettleUp(false); refreshPayments() }}
         />
       )}
+
+      {actionMemberUid && (() => {
+        const uid = actionMemberUid
+        const { name, isSelf, canMerge, canPromote, canDemote, canRemove } = getMemberActionInfo(uid)
+        const actionButtonClass =
+          'w-full flex items-center gap-2.5 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-50'
+        return (
+          <Modal title={name} onClose={() => setActionMemberUid(null)} size="sm">
+            <div className="p-5 flex flex-col gap-2">
+              {canMerge && (
+                <button
+                  type="button"
+                  onClick={() => { setActionMemberUid(null); setMergingGuestUid(uid) }}
+                  className={clsx(actionButtonClass, 'text-white')}
+                >
+                  <ArrowLeftRight size={16} className="text-slate-400" />
+                  Merge into a real member
+                </button>
+              )}
+              {canPromote && (
+                <button
+                  type="button"
+                  disabled={adminChangingId === uid}
+                  onClick={() => { setActionMemberUid(null); handlePromote(uid, name) }}
+                  className={clsx(actionButtonClass, 'text-white')}
+                >
+                  <ShieldPlus size={16} className="text-slate-400" />
+                  Make admin
+                </button>
+              )}
+              {canDemote && (
+                <button
+                  type="button"
+                  disabled={adminChangingId === uid}
+                  onClick={() => { setActionMemberUid(null); handleDemote(uid, name) }}
+                  className={clsx(actionButtonClass, 'text-white')}
+                >
+                  <ShieldMinus size={16} className="text-slate-400" />
+                  {isSelf ? 'Step down as admin' : 'Remove as admin'}
+                </button>
+              )}
+              {canRemove && (
+                <button
+                  type="button"
+                  disabled={removingId === uid}
+                  onClick={() => { setActionMemberUid(null); handleRemoveMember(uid, name, isSelf) }}
+                  className={clsx(actionButtonClass, 'text-red-400')}
+                >
+                  <UserMinus size={16} />
+                  {isSelf ? 'Leave group' : 'Remove from group'}
+                </button>
+              )}
+              {!canMerge && !canPromote && !canDemote && !canRemove && (
+                <p className="text-sm text-slate-500">No actions available.</p>
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
 
       {mergingGuestUid && (() => {
         const guestName = members[mergingGuestUid]?.displayName ?? 'Member'

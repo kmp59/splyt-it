@@ -17,15 +17,38 @@ const sizes = {
   lg: 'w-10 h-10 text-sm',
 }
 
-export default function Avatar({ name = '', uid = '', size = 'md', className = '' }) {
+// status: 'guest' -> dark gray dot, 'member' -> green dot, omit for none.
+const STATUS_COLORS = {
+  guest: 'bg-slate-500',
+  member: 'bg-green-500',
+}
+
+const statusDotSizes = {
+  xs: 'w-1.5 h-1.5',
+  sm: 'w-2 h-2',
+  md: 'w-2.5 h-2.5',
+  lg: 'w-3 h-3',
+}
+
+export default function Avatar({ name = '', uid = '', size = 'md', status, className = '' }) {
   const bg = colorFor(uid || name)
+  const statusColor = STATUS_COLORS[status]
   return (
-    <div
-      className={`${sizes[size]} rounded-full flex items-center justify-center font-bold text-white shrink-0 select-none ${className}`}
-      style={{ backgroundColor: bg }}
-      aria-label={name}
-    >
-      {initials(name)}
+    <div className={`relative shrink-0 ${className}`}>
+      <div
+        className={`${sizes[size]} rounded-full flex items-center justify-center font-bold text-white select-none`}
+        style={{ backgroundColor: bg }}
+        aria-label={name}
+      >
+        {initials(name)}
+      </div>
+      {statusColor && (
+        <span
+          className={`absolute -top-0.5 -right-0.5 ${statusDotSizes[size]} ${statusColor} rounded-full ring-2 ring-slate-900`}
+          aria-label={status === 'guest' ? 'Guest' : 'Registered member'}
+          title={status === 'guest' ? 'Guest' : 'Registered member'}
+        />
+      )}
     </div>
   )
 }
