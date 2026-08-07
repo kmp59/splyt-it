@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router'
-import { LogOut } from 'lucide-react'
+import { LogOut, BookOpen } from 'lucide-react'
 import { signOut } from '../../services/auth'
 import { useAuth } from '../../context/AuthContext'
 import Avatar from './Avatar'
@@ -41,6 +41,13 @@ export default function NavBar({ left, inviteCount = 0 }) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <Link
+            to="/docs"
+            title="Help & guides"
+            className="w-11 h-11 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+          >
+            <BookOpen size={15} />
+          </Link>
           <Link
             to="/account"
             title="Account settings"

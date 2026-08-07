@@ -127,6 +127,10 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-slate-900 py-6 text-center text-xs text-slate-600">
         <p>splyt-it — split any cost with your crew in seconds.</p>
         <p className="mt-2">
+          <Link to="/docs" className="hover:text-slate-400 transition-colors">
+            Docs
+          </Link>
+          <span className="mx-2">·</span>
           <Link to="/terms" className="hover:text-slate-400 transition-colors">
             Terms & Conditions
           </Link>

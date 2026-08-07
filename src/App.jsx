@@ -11,6 +11,8 @@ import AccountPage from './pages/AccountPage'
 import LandingPage from './pages/LandingPage'
 import TermsPage from './pages/TermsPage'
 import CopyrightPage from './pages/CopyrightPage'
+import DocsIndexPage from './pages/DocsIndexPage'
+import DocPage from './pages/DocPage'
 
 export default function App() {
   return (
@@ -24,6 +26,8 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/copyright" element={<CopyrightPage />} />
+          <Route path="/docs" element={<DocsIndexPage />} />
+          <Route path="/docs/:slug" element={<DocPage />} />
           <Route
             path="/dashboard"
             element={
