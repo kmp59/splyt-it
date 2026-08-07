@@ -113,6 +113,7 @@ export async function createGroup(name, createdByUid, memberEmails) {
       name,
       createdBy: createdByUid,
       memberIds: [createdByUid],
+      adminIds: [createdByUid],
       pendingMemberIds,
       memberEmails: cleaned,
       createdAt: { seconds: Date.now() / 1000 },
@@ -214,16 +215,106 @@ export async function addMemberToGroup(groupId, email) {
   }
 }
 
-export async function removeMemberFromGroup(groupId, uid) {
+// Only the group creator may promote/demote admins. Admins can do everything
+// an ordinary member can, plus merge a guest into a real member — merging
+// rewrites someone else's expense/payment history, so it's gated to a
+// smaller, creator-vetted set of people rather than every member.
+export async function promoteToAdmin(groupId, targetUid) {
   const groups = readGroups()
   const idx = groups.findIndex((g) => g.id === groupId)
   if (idx === -1) throw new Error('Group not found')
-  groups[idx] = {
-    ...groups[idx],
-    memberIds: groups[idx].memberIds.filter((id) => id !== uid),
-    pendingMemberIds: (groups[idx].pendingMemberIds ?? []).filter((id) => id !== uid),
+  const adminIds = groups[idx].adminIds ?? []
+  if (!adminIds.includes(targetUid)) {
+    groups[idx] = { ...groups[idx], adminIds: [...adminIds, targetUid] }
+    writeGroups(groups)
   }
+}
+
+export async function demoteAdmin(groupId, targetUid) {
+  const groups = readGroups()
+  const idx = groups.findIndex((g) => g.id === groupId)
+  if (idx === -1) throw new Error('Group not found')
+  groups[idx] = { ...groups[idx], adminIds: (groups[idx].adminIds ?? []).filter((uid) => uid !== targetUid) }
   writeGroups(groups)
+}
+
+// Self-leave or creator-removal. The group creator can't be removed this way
+// — ownership transfer isn't supported yet, so the creator must archive the
+// group instead of leaving.
+export async function removeMember(groupId, targetUid) {
+  const groups = readGroups()
+  const idx = groups.findIndex((g) => g.id === groupId)
+  if (idx === -1) throw new Error('Group not found')
+  if (targetUid === groups[idx].createdBy) {
+    throw Object.assign(new Error('Group owner cannot be removed'), { code: 'member/is-creator' })
+  }
+  groups[idx] = { ...groups[idx], memberIds: groups[idx].memberIds.filter((uid) => uid !== targetUid) }
+  writeGroups(groups)
+}
+
+// Reassigns everything a guest placeholder touched — expense paidBy/splits,
+// payment from/to — onto a real member, then drops the guest from the
+// group and deletes their placeholder profile. Unlike removeMember(), this
+// never requires a zero balance: the guest's balance is meant to transfer
+// onto targetUid, not be settled away.
+export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
+  if (guestUid === targetUid) {
+    throw Object.assign(new Error('Cannot merge a member into themselves'), { code: 'merge/same-uid' })
+  }
+
+  const users = readUsers()
+  const guest = users.find((u) => u.uid === guestUid)
+  if (!guest || !guest.isGuest) {
+    throw Object.assign(new Error('Not a guest'), { code: 'merge/not-a-guest' })
+  }
+  const target = users.find((u) => u.uid === targetUid)
+
+  const groups = readGroups()
+  const idx = groups.findIndex((g) => g.id === groupId)
+  if (idx === -1) throw new Error('Group not found')
+  if (!groups[idx].memberIds.includes(targetUid)) {
+    throw Object.assign(new Error('Target is not a member of this group'), { code: 'merge/target-not-member' })
+  }
+  const targetName = target?.displayName ?? targetUid
+
+  writeExp(
+    groupId,
+    readExp(groupId).map((exp) => {
+      let next = exp
+      if (exp.paidBy === guestUid) {
+        next = { ...next, paidBy: targetUid, paidByName: targetName }
+      }
+      if (exp.splits && guestUid in exp.splits) {
+        const splits = { ...exp.splits }
+        const guestShare = splits[guestUid]
+        delete splits[guestUid]
+        // Same expense already had a split for targetUid — combine rather
+        // than silently drop one share.
+        splits[targetUid] = (splits[targetUid] ?? 0) + guestShare
+        next = { ...next, splits }
+      }
+      return next
+    })
+  )
+
+  writePay(
+    groupId,
+    readPay(groupId)
+      .map((pay) => {
+        if (pay.from !== guestUid && pay.to !== guestUid) return pay
+        const from = pay.from === guestUid ? targetUid : pay.from
+        const to = pay.to === guestUid ? targetUid : pay.to
+        // A prior settle-up between the guest and the person they're being
+        // merged into — now meaningless ("paid themselves"), so drop it.
+        return from === to ? null : { ...pay, from, to }
+      })
+      .filter(Boolean)
+  )
+
+  groups[idx] = { ...groups[idx], memberIds: groups[idx].memberIds.filter((uid) => uid !== guestUid) }
+  writeGroups(groups)
+
+  lsSet(USR_KEY, users.filter((u) => u.uid !== guestUid))
 }
 
 export async function getUserGroups(uid) {
@@ -247,7 +338,7 @@ export async function getGroupMembers(memberIds) {
   return Object.fromEntries(
     memberIds.map((uid) => {
       const u = users.find((u) => u.uid === uid)
-      return [uid, u ? { uid, displayName: u.displayName, email: u.email }
+      return [uid, u ? { uid, displayName: u.displayName, email: u.email, isGuest: !!u.isGuest }
                      : { uid, displayName: `User ${uid.slice(0, 6)}`, email: '' }]
     })
   )

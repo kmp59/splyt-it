@@ -6,6 +6,7 @@ import {
   addDoc,
   deleteDoc,
   updateDoc,
+  writeBatch,
   arrayUnion,
   arrayRemove,
   increment,
@@ -42,6 +43,7 @@ export async function createGroup(name, createdByUid, memberEmails) {
     name,
     createdBy: createdByUid,
     memberIds: [createdByUid],
+    adminIds: [createdByUid],
     pendingMemberIds,
     memberEmails: cleaned,
     createdAt: serverTimestamp(),
@@ -114,11 +116,108 @@ export async function addMemberToGroup(groupId, email) {
   })
 }
 
-export async function removeMemberFromGroup(groupId, uid) {
+// Only the group creator may promote/demote admins (see isAdminGrant /
+// isAdminRevoke in firestore.rules). Admins can do everything an ordinary
+// member can, plus merge a guest into a real member — merging rewrites
+// someone else's expense/payment history, so it's gated to a smaller,
+// creator-vetted set of people rather than every member.
+export async function promoteToAdmin(groupId, targetUid) {
   await updateDoc(doc(db, 'groups', groupId), {
-    memberIds: arrayRemove(uid),
-    pendingMemberIds: arrayRemove(uid),
+    adminIds: arrayUnion(targetUid),
   })
+}
+
+export async function demoteAdmin(groupId, targetUid) {
+  await updateDoc(doc(db, 'groups', groupId), {
+    adminIds: arrayRemove(targetUid),
+  })
+}
+
+// Self-leave or creator-removal. The group creator can't be removed this way
+// (see isMemberRemove in firestore.rules) — ownership transfer isn't
+// supported yet, so the creator must archive the group instead of leaving.
+export async function removeMember(groupId, targetUid) {
+  const snap = await getDoc(doc(db, 'groups', groupId))
+  if (!snap.exists()) throw new Error('Group not found')
+  if (targetUid === snap.data().createdBy) {
+    throw Object.assign(new Error('Group owner cannot be removed'), { code: 'member/is-creator' })
+  }
+  await updateDoc(doc(db, 'groups', groupId), {
+    memberIds: arrayRemove(targetUid),
+  })
+}
+
+// Reassigns everything a guest placeholder touched — expense paidBy/splits,
+// payment from/to — onto a real member, then drops the guest from the
+// group and deletes their placeholder profile. Unlike removeMember(), this
+// never requires a zero balance: the guest's balance is meant to transfer
+// onto targetUid, not be settled away.
+export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
+  if (guestUid === targetUid) {
+    throw Object.assign(new Error('Cannot merge a member into themselves'), { code: 'merge/same-uid' })
+  }
+
+  const [guestSnap, targetSnap, groupSnap] = await Promise.all([
+    getDoc(doc(db, 'users', guestUid)),
+    getDoc(doc(db, 'users', targetUid)),
+    getDoc(doc(db, 'groups', groupId)),
+  ])
+  if (!guestSnap.exists() || !guestSnap.data().isGuest) {
+    throw Object.assign(new Error('Not a guest'), { code: 'merge/not-a-guest' })
+  }
+  if (!groupSnap.exists() || !(groupSnap.data().memberIds ?? []).includes(targetUid)) {
+    throw Object.assign(new Error('Target is not a member of this group'), { code: 'merge/target-not-member' })
+  }
+  const targetName = targetSnap.exists() ? targetSnap.data().displayName : targetUid
+
+  const [expensesSnap, paymentsSnap] = await Promise.all([
+    getDocs(collection(db, 'groups', groupId, 'expenses')),
+    getDocs(collection(db, 'groups', groupId, 'payments')),
+  ])
+
+  const batch = writeBatch(db)
+
+  for (const expDoc of expensesSnap.docs) {
+    const exp = expDoc.data()
+    const update = {}
+    if (exp.paidBy === guestUid) {
+      update.paidBy = targetUid
+      update.paidByName = targetName
+    }
+    if (exp.splits && guestUid in exp.splits) {
+      const splits = { ...exp.splits }
+      const guestShare = splits[guestUid]
+      delete splits[guestUid]
+      // Same expense already had a split for targetUid (e.g. both the guest
+      // and the real person were on it by mistake) — combine rather than
+      // silently drop one share.
+      splits[targetUid] = (splits[targetUid] ?? 0) + guestShare
+      update.splits = splits
+    }
+    if (Object.keys(update).length > 0) batch.update(expDoc.ref, update)
+  }
+
+  for (const payDoc of paymentsSnap.docs) {
+    const pay = payDoc.data()
+    if (pay.from !== guestUid && pay.to !== guestUid) continue
+    const from = pay.from === guestUid ? targetUid : pay.from
+    const to = pay.to === guestUid ? targetUid : pay.to
+    if (from === to) {
+      // A prior settle-up between the guest and the person they're being
+      // merged into — now meaningless ("paid themselves"), so drop it.
+      batch.delete(payDoc.ref)
+    } else {
+      batch.update(payDoc.ref, { from, to })
+    }
+  }
+
+  batch.update(doc(db, 'groups', groupId), { memberIds: arrayRemove(guestUid) })
+
+  await batch.commit()
+  // Best-effort cleanup — /users isn't group-scoped so it can't ride in the
+  // same batch as a group-owned failure guard; a stray orphaned guest doc
+  // left behind here is harmless (nothing references it anymore).
+  await deleteDoc(doc(db, 'users', guestUid)).catch(() => {})
 }
 
 export async function getUserGroups(uid) {

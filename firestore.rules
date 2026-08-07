@@ -28,8 +28,9 @@ service cloud.firestore {
     // Existing members may edit only a fixed allowlist of scalar settings
     // fields — memberIds, createdBy, pendingMemberIds and memberEmails stay
     // untouched here and can only change via the dedicated
-    // isSelfJoin/isSelfAccept/isSelfDecline/isGuestAdd/isMemberInvite paths
-    // below. Without this narrowing, any member could freely rewrite
+    // isSelfJoin/isSelfAccept/isSelfDecline/isGuestAdd/isMemberInvite/
+    // isMemberRemove/isGuestRemove/isAdminGrant/isAdminRevoke paths below.
+    // Without this narrowing, any member could freely rewrite
     // createdBy, totalExpenses, or invite state directly.
     //
     // pendingMemberIds/memberEmails are read via .get(key, []) rather than
@@ -76,6 +77,37 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.resource.data.memberIds.removeAll(data.memberIds)[0])).data.isGuest == true;
     }
 
+    // Narrow carve-out for removeMember(): removes exactly one uid from
+    // memberIds and nothing else. Allowed either as self-removal (a member
+    // leaving) or creator-removal (the group creator removing someone else).
+    // The creator themself can never be the uid removed — there's no
+    // ownership transfer yet, so a creator-less group would be unrecoverable.
+    function isMemberRemove(data) {
+      let removed = data.memberIds.removeAll(request.resource.data.memberIds);
+      return isMember(data)
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['memberIds'])
+        && removed.size() == 1
+        && request.resource.data.memberIds.removeAll(data.memberIds).size() == 0
+        && removed[0] != data.createdBy
+        && (removed[0] == request.auth.uid || request.auth.uid == data.createdBy);
+    }
+
+    // Narrow carve-out for mergeGuestIntoMember()'s group-doc step: an admin
+    // (not any member — merging rewrites other people's financial history,
+    // so it's restricted the same as the payment carve-outs below) may drop
+    // exactly one uid from memberIds, but only if that uid's /users doc is a
+    // guest placeholder. Distinct from isMemberRemove — merging away a guest
+    // isn't "leaving" or "creator kicks someone", it's cleanup after that
+    // guest's history has already been reassigned to a real member.
+    function isGuestRemove(data) {
+      let removed = data.memberIds.removeAll(request.resource.data.memberIds);
+      return isAdmin(data)
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['memberIds'])
+        && removed.size() == 1
+        && request.resource.data.memberIds.removeAll(data.memberIds).size() == 0
+        && get(/databases/$(database)/documents/users/$(removed[0])).data.isGuest == true;
+    }
+
     // Invitee accepting: moves their own uid pendingMemberIds -> memberIds,
     // nothing else changes in the same write.
     function isSelfAccept() {
@@ -103,6 +135,47 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid in groupData(groupId).memberIds;
     }
 
+    // Admins: the creator, plus anyone the creator has promoted via
+    // adminIds. Groups created before this feature have no adminIds field at
+    // all, hence .get(key, []) — such a group simply has one admin, its
+    // creator. Kept separate from isMember on purpose: every admin is a
+    // member, but not every member is an admin, and callers that need the
+    // stronger check (guest-merge, guest-removal) ask for this explicitly
+    // rather than accidentally getting the weaker isMember/isGroupMember.
+    function isAdmin(data) {
+      return isSignedIn()
+        && (request.auth.uid == data.createdBy || request.auth.uid in data.get('adminIds', []));
+    }
+
+    // Narrow carve-out: only the creator may promote a current member to
+    // admin — one uid at a time, additive only, and only a uid already in
+    // memberIds (can't pre-promote someone who hasn't joined).
+    function isAdminGrant(data) {
+      return isSignedIn() && request.auth.uid == data.createdBy
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['adminIds'])
+        && data.get('adminIds', []).removeAll(request.resource.data.get('adminIds', [])).size() == 0
+        && request.resource.data.get('adminIds', []).removeAll(data.get('adminIds', [])).size() == 1
+        && request.resource.data.adminIds.removeAll(data.get('adminIds', []))[0] in data.memberIds;
+    }
+
+    // Narrow carve-out: the creator, or any current admin, may revoke one
+    // admin at a time (self-revoke — an admin stepping down — included).
+    // Wider than isAdminGrant on purpose: promoting is a deliberate,
+    // creator-only trust decision, but any admin can be trusted to notice
+    // and undo a bad one. The revoked uid can never be the creator — their
+    // admin status comes from createdBy, not adminIds, so this couldn't
+    // touch it either way, but the explicit check keeps that invariant
+    // enforced here too rather than relying on it only holding by
+    // construction elsewhere.
+    function isAdminRevoke(data) {
+      let revoked = data.get('adminIds', []).removeAll(request.resource.data.get('adminIds', []));
+      return isAdmin(data)
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['adminIds'])
+        && request.resource.data.get('adminIds', []).removeAll(data.get('adminIds', [])).size() == 0
+        && revoked.size() == 1
+        && revoked[0] != data.createdBy;
+    }
+
     // Server-side shape/value validation for expense writes — the client
     // (AddExpenseModal) already validates this, but rules are the only
     // enforcement a malicious or buggy client can't bypass. Amount is
@@ -121,6 +194,47 @@ service cloud.firestore {
         && data.to is string && data.to in groupData(groupId).memberIds
         && data.from != data.to
         && data.amount is number && data.amount > 0 && data.amount < 10000000;
+    }
+
+    function isGuest(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.isGuest == true;
+    }
+
+    // Narrow carve-out for mergeGuestIntoMember(): a payment that names a
+    // guest on one side may have that side repointed to the real member
+    // it's being merged into — amount/date are immutable, only from/to move,
+    // and only the guest's side may change (never a real member's side, and
+    // never to/from a uid outside the group). This is the one hole in "app
+    // never edits a recorded payment" — everything else about a payment
+    // stays permanent. Restricted to admins (not any member) — this rewrites
+    // who-paid-whom on someone else's financial record, so it needs the same
+    // trust tier as guest-removal, not the ordinary member tier. Both
+    // pre-write parties are also required to still be current group members,
+    // so a repoint can't target a stale/already-departed uid.
+    function isPaymentGuestMerge(data, groupId) {
+      return isAdmin(groupData(groupId))
+        && request.resource.data.amount == data.amount
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['from', 'to'])
+        && request.resource.data.from in groupData(groupId).memberIds
+        && request.resource.data.to in groupData(groupId).memberIds
+        && request.resource.data.from != request.resource.data.to
+        && data.from in groupData(groupId).memberIds
+        && data.to in groupData(groupId).memberIds
+        && ((data.to == request.resource.data.to && isGuest(data.from))
+            || (data.from == request.resource.data.from && isGuest(data.to)));
+    }
+
+    // Narrow carve-out for mergeGuestIntoMember(): if the guest and the
+    // member they're merging into already had a payment between them, the
+    // repoint above would collapse it to from == to (paying yourself) —
+    // meaningless, so that one payment is deleted instead. Only reachable
+    // when a guest is one of the two parties, and admin-gated for the same
+    // reason as isPaymentGuestMerge.
+    function isPaymentGuestMergeDelete(data, groupId) {
+      return isAdmin(groupData(groupId))
+        && (isGuest(data.from) || isGuest(data.to))
+        && data.from in groupData(groupId).memberIds
+        && data.to in groupData(groupId).memberIds;
     }
 
     // users: profile docs, keyed by uid. Lookup is by exact email only
@@ -143,7 +257,23 @@ service cloud.firestore {
             || (request.resource.data.isGuest == true
                 && request.resource.data.email == ''
                 && request.resource.data.displayName is string));
-      allow update, delete: if isSignedIn() && request.auth.uid == userId;
+      // isGuest is set once at creation and locked from then on — a real
+      // user could otherwise self-flip it to true to pass as a guest for
+      // the isGuest()-gated payment carve-outs below (isPaymentGuestMerge /
+      // isPaymentGuestMergeDelete), forging or erasing payment records that
+      // are supposed to be untouchable. Every other field on a user's own
+      // doc stays freely editable (display name, etc).
+      allow update: if isSignedIn() && request.auth.uid == userId
+        && request.resource.data.get('isGuest', false) == resource.data.get('isGuest', false);
+      // A guest placeholder has no login of its own — nobody's auth.uid can
+      // ever equal a guest's uid, so "only the doc's own uid may delete it"
+      // would make mergeGuestIntoMember()'s cleanup step permanently
+      // impossible. Guest docs carry no real identity to protect (no email,
+      // isGuest is now locked, and their uid is an unguessable Firestore
+      // auto-ID that can't be discovered via `list`), so any signed-in user
+      // may delete one; a real user's own doc still only they can delete.
+      allow delete: if isSignedIn()
+        && (request.auth.uid == userId || resource.data.isGuest == true);
     }
 
     // emailIndex: {normalizedEmail} -> { uid }. Lets resolveEmailsToUids()
@@ -183,8 +313,12 @@ service cloud.firestore {
       allow list: if isSignedIn() && request.auth.uid in resource.data.pendingMemberIds;
       allow create: if isSignedIn()
         && request.resource.data.createdBy == request.auth.uid
-        && request.auth.uid in request.resource.data.memberIds;
-      allow update: if isMemberUpdate(resource.data) || isMemberInvite(resource.data) || isGuestAdd(resource.data) || isSelfJoin() || isSelfAccept() || isSelfDecline();
+        && request.auth.uid in request.resource.data.memberIds
+        // If the creator seeds adminIds at creation time, it may only ever
+        // name themself — no pre-loading other people onto the admin list
+        // without their own later isAdminGrant step.
+        && (!('adminIds' in request.resource.data) || request.resource.data.adminIds == [request.auth.uid]);
+      allow update: if isMemberUpdate(resource.data) || isMemberInvite(resource.data) || isGuestAdd(resource.data) || isMemberRemove(resource.data) || isGuestRemove(resource.data) || isAdminGrant(resource.data) || isAdminRevoke(resource.data) || isSelfJoin() || isSelfAccept() || isSelfDecline();
       allow delete: if false;
 
       match /expenses/{expenseId} {
@@ -201,9 +335,10 @@ service cloud.firestore {
       match /payments/{paymentId} {
         allow read: if isGroupMember(groupId);
         allow create: if isGroupMember(groupId) && isValidPayment(request.resource.data, groupId);
-        // App never edits or deletes a recorded payment — deny outright
-        // rather than leaving an unused write path open.
-        allow update, delete: if false;
+        // App never edits or deletes a recorded payment for its own sake —
+        // the only exceptions are the guest-merge carve-outs above.
+        allow update: if isPaymentGuestMerge(resource.data, groupId);
+        allow delete: if isPaymentGuestMergeDelete(resource.data, groupId);
       }
     }
   }
