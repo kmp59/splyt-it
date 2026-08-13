@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import { signIn } from '../../services/auth'
 import Button from '../ui/Button'
 import LoadingSpinner from '../ui/LoadingSpinner'
+import GoogleSignInButton from './GoogleSignInButton'
 
 const INPUT_CLS =
   'w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-green-600 focus:ring-1 focus:ring-green-600 transition-colors text-sm'
@@ -49,6 +50,15 @@ export default function LoginPage() {
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <h2 className="text-base font-semibold text-white mb-5">Sign in</h2>
+
+          <GoogleSignInButton />
+
+          <div className="flex items-center gap-3 my-5">
+            <div className="flex-1 h-px bg-slate-800" />
+            <span className="text-xs text-slate-500">or</span>
+            <div className="flex-1 h-px bg-slate-800" />
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm text-slate-300 mb-1.5">Email</label>

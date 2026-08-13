@@ -28,6 +28,20 @@ export async function signIn(email, password) {
   return { user: session }
 }
 
+// No real OAuth in local mode — signs in as a fixed demo Google account so
+// the "Continue with Google" button has something to demonstrate.
+export async function signInWithGoogle() {
+  const users = readUsers()
+  let user = users.find((u) => u.uid === 'demo-google-user')
+  if (!user) {
+    user = { uid: 'demo-google-user', email: 'demo.google@example.com', displayName: 'Google Demo User', password: null }
+    writeUsers([...users, user])
+  }
+  const session = { uid: user.uid, email: user.email, displayName: user.displayName }
+  lsSet(SESSION_KEY, session)
+  return { user: session }
+}
+
 export async function signUp(email, password, displayName) {
   const users = readUsers()
   if (users.find((u) => u.email === email.toLowerCase()))

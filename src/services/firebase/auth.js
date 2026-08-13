@@ -1,6 +1,8 @@
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut as fbSignOut,
   onAuthStateChanged as fbOnAuthStateChanged,
   updateProfile,
@@ -48,6 +50,13 @@ export async function signUp(email, password, displayName) {
     displayName,
   })
   await setEmailIndex(user.uid, normalizedEmail)
+  return { user }
+}
+
+export async function signInWithGoogle() {
+  const provider = new GoogleAuthProvider()
+  const { user } = await signInWithPopup(auth, provider)
+  await ensureUserDoc(user)
   return { user }
 }
 

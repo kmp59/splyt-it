@@ -8,6 +8,7 @@ import * as firebaseAuth from './firebase/auth'
 const impl = import.meta.env.VITE_DATA_MODE === 'local' ? localAuth : firebaseAuth
 
 export const signIn = impl.signIn
+export const signInWithGoogle = impl.signInWithGoogle
 export const signUp = impl.signUp
 export const signOut = impl.signOut
 export const resetPassword = impl.resetPassword

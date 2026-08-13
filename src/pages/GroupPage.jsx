@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
-import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, UserMinus, ArrowLeftRight, ShieldPlus, ShieldMinus, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, UserMinus, ArrowLeftRight, ShieldPlus, ShieldMinus, RotateCcw, ChevronDown } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
@@ -53,6 +53,7 @@ export default function GroupPage() {
   const [actionMemberUid, setActionMemberUid] = useState(null)
   const [merging, setMerging] = useState(false)
   const [adminChangingId, setAdminChangingId] = useState(null)
+  const [membersOpen, setMembersOpen] = useState(false)
 
   // real-time group doc
   useEffect(() => {
@@ -351,19 +352,36 @@ export default function GroupPage() {
           )}
         </div>
 
-        {/* Members — always visible regardless of tab */}
-        <section>
+        {/* Members — only shown on the Expenses tab, collapsible */}
+        <section className={clsx(tab !== 'expenses' && 'hidden')}>
           <div className="flex items-center justify-between mb-3">
-            <h2 className={SECTION_LABEL} style={{ marginBottom: 0 }}>Members · {memberList.length}</h2>
             <button
-              onClick={() => setShowAddMember((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-green-400 transition-colors"
+              type="button"
+              onClick={() => setMembersOpen((v) => !v)}
+              className="flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded"
+              aria-expanded={membersOpen}
             >
-              <UserPlus size={13} />
-              Add member
+              <span className={clsx(
+                'flex items-center justify-center w-5 h-5 rounded-full border border-slate-600 shrink-0 transition-transform',
+                membersOpen && 'rotate-180'
+              )}>
+                <ChevronDown size={12} className="text-slate-400" />
+              </span>
+              <h2 className={SECTION_LABEL} style={{ marginBottom: 0 }}>Members · {memberList.length}</h2>
             </button>
+            {membersOpen && (
+              <button
+                onClick={() => setShowAddMember((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-green-400 transition-colors"
+              >
+                <UserPlus size={13} />
+                Add member
+              </button>
+            )}
           </div>
 
+          {membersOpen && (
+          <>
           <div className="flex flex-wrap gap-4">
             {memberList.map((uid) => {
               const { profile, name, isSelf, isTargetCreator, isTargetAdmin, canRemove, canPromote, canDemote, canMerge } =
@@ -479,6 +497,8 @@ export default function GroupPage() {
               )}
             </div>
           )}
+          </>
+          )}
         </section>
 
         {/* Expenses list — default tab */}
@@ -580,10 +600,19 @@ export default function GroupPage() {
             />
           ) : (() => {
             const spending = {}
+            let total = 0
             for (const exp of expenses) {
               spending[exp.paidBy] = (spending[exp.paidBy] ?? 0) + exp.amount
+              total += exp.amount
             }
             return (
+              <>
+              <div className="flex flex-col items-center gap-2 mb-5">
+                <span className="text-[10px] font-semibold text-green-500 uppercase tracking-wider">Total</span>
+                <div className="flex items-center justify-center w-32 h-32 rounded-full bg-green-950/40 border border-green-800/50">
+                  <span className="text-lg font-bold text-green-400 tabular-nums text-center px-2">{fmt(total)}</span>
+                </div>
+              </div>
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800">
                 {[...memberList]
                   .sort((a, b) => (spending[b] ?? 0) - (spending[a] ?? 0))
@@ -606,6 +635,7 @@ export default function GroupPage() {
                     )
                   })}
               </div>
+              </>
             )
           })()}
         </section>
