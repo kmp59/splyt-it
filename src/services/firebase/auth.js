@@ -2,6 +2,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut as fbSignOut,
   onAuthStateChanged as fbOnAuthStateChanged,
@@ -53,11 +55,48 @@ export async function signUp(email, password, displayName) {
   return { user }
 }
 
+// Browsers that block third-party storage/cookies (Safari ITP, Brave, an
+// in-app webview, or Chrome with "block third-party cookies" on) can't
+// complete the popup handshake — the popup gets stuck on the bare
+// authDomain instead of relaying the result back and closing itself. In
+// that case fall back to a full-page redirect, which round-trips through
+// the same authDomain handler but returns control to *this* origin
+// (splyt-it.vercel.app) rather than stranding the user on
+// splyt-it.firebaseapp.com. `auth/popup-closed-by-user` and
+// `auth/cancelled-popup-request` are the user deliberately backing out —
+// those should not retry.
+const POPUP_FALLBACK_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/operation-not-supported-in-this-environment',
+  'auth/web-storage-unsupported',
+  'auth/internal-error',
+])
+
 export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider()
-  const { user } = await signInWithPopup(auth, provider)
-  await ensureUserDoc(user)
-  return { user }
+  try {
+    const { user } = await signInWithPopup(auth, provider)
+    await ensureUserDoc(user)
+    return { user }
+  } catch (err) {
+    if (POPUP_FALLBACK_CODES.has(err.code)) {
+      // Navigates away; execution resumes via completeGoogleRedirect()
+      // after Firebase redirects back to this page.
+      await signInWithRedirect(auth, provider)
+      return { user: null }
+    }
+    throw err
+  }
+}
+
+// Call on mount of any page that renders <GoogleSignInButton>, so a
+// signInWithGoogle() that fell back to signInWithRedirect finishes
+// properly (user doc creation) once the browser lands back here.
+export async function completeGoogleRedirect() {
+  const result = await getRedirectResult(auth)
+  if (!result) return null
+  await ensureUserDoc(result.user)
+  return result.user
 }
 
 export async function resetPassword(email) {

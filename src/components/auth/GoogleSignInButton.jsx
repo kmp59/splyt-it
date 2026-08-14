@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { signInWithGoogle } from '../../services/auth'
+import { signInWithGoogle, completeGoogleRedirect } from '../../services/auth'
 import LoadingSpinner from '../ui/LoadingSpinner'
 
 // Official Google "G" mark — kept as inline SVG so it renders crisp at any
@@ -21,12 +21,33 @@ export default function GoogleSignInButton({ label = 'Continue with Google' }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // If signInWithGoogle() previously fell back to a full-page redirect
+  // (popup blocked by the browser's third-party cookie/storage policy),
+  // this page remounts once Firebase redirects back here. Pick up the
+  // result and finish the job the click handler couldn't.
+  useEffect(() => {
+    let cancelled = false
+    completeGoogleRedirect()
+      .then((user) => {
+        if (!cancelled && user) navigate('/dashboard')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Google sign-in failed. Please try again.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [navigate])
+
   async function handleClick() {
     setError('')
     setLoading(true)
     try {
-      await signInWithGoogle()
-      navigate('/dashboard')
+      const { user } = await signInWithGoogle()
+      // A null user means we fell back to signInWithRedirect — the browser
+      // is navigating away now, and the effect above picks up the result
+      // once it navigates back.
+      if (user) navigate('/dashboard')
     } catch (err) {
       // User closing the popup isn't an error worth surfacing.
       if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {

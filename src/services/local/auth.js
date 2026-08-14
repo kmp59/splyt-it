@@ -42,6 +42,11 @@ export async function signInWithGoogle() {
   return { user: session }
 }
 
+// Local mode never redirects away, so there's nothing to resume.
+export async function completeGoogleRedirect() {
+  return null
+}
+
 export async function signUp(email, password, displayName) {
   const users = readUsers()
   if (users.find((u) => u.email === email.toLowerCase()))
