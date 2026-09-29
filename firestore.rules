@@ -193,7 +193,13 @@ service cloud.firestore {
       return data.from is string && data.from in groupData(groupId).memberIds
         && data.to is string && data.to in groupData(groupId).memberIds
         && data.from != data.to
-        && data.amount is number && data.amount > 0 && data.amount < 10000000;
+        && data.amount is number && data.amount > 0 && data.amount < 10000000
+        // paidBy: someone who paid on the debtor's (`from`'s) behalf. Must be
+        // a member, and can't be the debtor or the person being paid.
+        && (!('paidBy' in data) || (data.paidBy is string
+            && data.paidBy in groupData(groupId).memberIds
+            && data.paidBy != data.from && data.paidBy != data.to))
+        && (!('recordedBy' in data) || data.recordedBy == request.auth.uid);
     }
 
     function isGuest(uid) {
@@ -222,6 +228,15 @@ service cloud.firestore {
         && data.to in groupData(groupId).memberIds
         && ((data.to == request.resource.data.to && isGuest(data.from))
             || (data.from == request.resource.data.from && isGuest(data.to)));
+    }
+
+    // Narrow carve-out for mergeGuestIntoMember(): a guest who paid on
+    // someone else's behalf (paidBy) — only paidBy moves, onto a real member.
+    function isPaymentPaidByGuestMerge(data, groupId) {
+      return isAdmin(groupData(groupId))
+        && request.resource.data.diff(data).affectedKeys().hasOnly(['paidBy'])
+        && isGuest(data.paidBy)
+        && request.resource.data.paidBy in groupData(groupId).memberIds;
     }
 
     // Narrow carve-out for mergeGuestIntoMember(): if the guest and the
@@ -337,8 +352,33 @@ service cloud.firestore {
         allow create: if isGroupMember(groupId) && isValidPayment(request.resource.data, groupId);
         // App never edits or deletes a recorded payment for its own sake —
         // the only exceptions are the guest-merge carve-outs above.
-        allow update: if isPaymentGuestMerge(resource.data, groupId);
+        allow update: if isPaymentGuestMerge(resource.data, groupId) || isPaymentPaidByGuestMerge(resource.data, groupId);
         allow delete: if isPaymentGuestMergeDelete(resource.data, groupId);
+      }
+
+      // Saved settlement plan (only doc id "plan"). Written once — by
+      // whichever member completes the trip or first opens Settle Up — and
+      // never recalculated, so who-pays-whom can't reshuffle. `create` only
+      // matches when the doc doesn't exist yet, so a second writer is denied
+      // rather than overwriting. Admins may update it solely so a guest
+      // merge can repoint the guest's rows onto the real member; the
+      // payload shape is still enforced. Never deleted.
+      match /settlement/{docId} {
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId)
+          && docId == 'plan'
+          && request.resource.data.keys().hasOnly(['rows', 'balances', 'createdBy', 'createdAt'])
+          && request.resource.data.rows is list
+          && request.resource.data.rows.size() <= 500
+          && request.resource.data.balances is map
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+        allow update: if isAdmin(groupData(groupId))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rows', 'balances'])
+          && request.resource.data.rows is list
+          && request.resource.data.rows.size() <= 500
+          && request.resource.data.balances is map;
+        allow delete: if false;
       }
     }
   }

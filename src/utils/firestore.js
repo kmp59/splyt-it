@@ -13,8 +13,10 @@ import {
   query,
   where,
   serverTimestamp,
+  runTransaction,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { mergeUidInPlan } from './balances'
 
 // Email->uid resolution goes through the /emailIndex collection — one get()
 // per email — rather than a where(email, 'in', emails) query on /users.
@@ -170,9 +172,10 @@ export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
   }
   const targetName = targetSnap.exists() ? (targetSnap.data().displayName ?? targetSnap.data().email ?? 'Member') : 'Member'
 
-  const [expensesSnap, paymentsSnap] = await Promise.all([
+  const [expensesSnap, paymentsSnap, planSnap] = await Promise.all([
     getDocs(collection(db, 'groups', groupId, 'expenses')),
     getDocs(collection(db, 'groups', groupId, 'payments')),
+    getDoc(doc(db, 'groups', groupId, 'settlement', 'plan')),
   ])
 
   const batch = writeBatch(db)
@@ -199,6 +202,12 @@ export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
 
   for (const payDoc of paymentsSnap.docs) {
     const pay = payDoc.data()
+    // The guest handed over money on someone else's behalf — only who paid
+    // moves (paidBy never equals from/to, so this is the only field touched).
+    if (pay.paidBy === guestUid) {
+      batch.update(payDoc.ref, { paidBy: targetUid })
+      continue
+    }
     if (pay.from !== guestUid && pay.to !== guestUid) continue
     const from = pay.from === guestUid ? targetUid : pay.from
     const to = pay.to === guestUid ? targetUid : pay.to
@@ -209,6 +218,13 @@ export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
     } else {
       batch.update(payDoc.ref, { from, to })
     }
+  }
+
+  // The saved settlement plan names uids too — move the guest's rows over
+  // with everything else so they don't show up as an unknown "Member".
+  if (planSnap.exists()) {
+    const { rows, balances } = mergeUidInPlan(planSnap.data(), guestUid, targetUid)
+    batch.update(planSnap.ref, { rows, balances })
   }
 
   batch.update(doc(db, 'groups', groupId), { memberIds: arrayRemove(guestUid) })
@@ -314,6 +330,28 @@ export async function recordPayment(groupId, payment) {
 export async function getPayments(groupId) {
   const snap = await getDocs(collection(db, 'groups', groupId, 'payments'))
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+// ---------------------------------------------------------------------------
+// Settlement plan — saved once per group (groups/{id}/settlement/plan) and
+// never recalculated, so who-pays-whom can't shift under people. Firestore
+// rules only allow creating it once; the transaction makes two members
+// opening Settle Up at the same moment agree on whichever plan landed first.
+// ---------------------------------------------------------------------------
+export async function getSettlementPlan(groupId) {
+  const snap = await getDoc(doc(db, 'groups', groupId, 'settlement', 'plan'))
+  return snap.exists() ? snap.data() : null
+}
+
+export async function ensureSettlementPlan(groupId, plan, uid) {
+  const ref = doc(db, 'groups', groupId, 'settlement', 'plan')
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref)
+    if (snap.exists()) return snap.data()
+    const data = { rows: plan.rows, balances: plan.balances, createdBy: uid, createdAt: serverTimestamp() }
+    tx.set(ref, data)
+    return data
+  })
 }
 
 export async function deleteExpense(groupId, expenseId, amount) {

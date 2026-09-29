@@ -135,3 +135,49 @@ describe('isPaymentGuestMergeDelete', () => {
     await assertFails(deleteDoc(doc(db, 'groups', 'g1', 'payments', 'p1')))
   })
 })
+
+describe('payments on someone else\'s behalf (paidBy) and recordedBy', () => {
+  it('a member can record a payment made on the debtor\'s behalf', async () => {
+    await seedGroup({ memberIds: ['alice', 'bob', 'carol', 'guest1'] })
+    const db = await asUser('bob')
+    await assertSucceeds(
+      setDoc(doc(db, 'groups', 'g1', 'payments', 'p1'), { from: 'carol', to: 'alice', amount: 10, paidBy: 'bob', recordedBy: 'bob' })
+    )
+  })
+
+  it('paidBy must be a group member', async () => {
+    await seedGroup()
+    const db = await asUser('bob')
+    await assertFails(
+      setDoc(doc(db, 'groups', 'g1', 'payments', 'p1'), { from: 'bob', to: 'alice', amount: 10, paidBy: 'mallory' })
+    )
+  })
+
+  it('paidBy cannot be the person being paid, or the debtor', async () => {
+    await seedGroup()
+    const db = await asUser('bob')
+    await assertFails(setDoc(doc(db, 'groups', 'g1', 'payments', 'p1'), { from: 'bob', to: 'alice', amount: 10, paidBy: 'alice' }))
+    await assertFails(setDoc(doc(db, 'groups', 'g1', 'payments', 'p2'), { from: 'bob', to: 'alice', amount: 10, paidBy: 'bob' }))
+  })
+
+  it('recordedBy must be the signed-in user', async () => {
+    await seedGroup()
+    const db = await asUser('bob')
+    await assertFails(setDoc(doc(db, 'groups', 'g1', 'payments', 'p1'), { from: 'bob', to: 'alice', amount: 10, recordedBy: 'alice' }))
+  })
+
+  it('an admin can move a guest\'s paidBy onto a real member (merge)', async () => {
+    await seedGroup({ memberIds: ['alice', 'bob', 'carol', 'guest1'] })
+    await seedPayment('p1', { from: 'carol', to: 'alice', amount: 10, paidBy: 'guest1' })
+    const db = await asUser('alice')
+    await assertSucceeds(updateDoc(doc(db, 'groups', 'g1', 'payments', 'p1'), { paidBy: 'bob' }))
+  })
+
+  it('a plain member cannot change paidBy, and nobody can change a real member\'s paidBy', async () => {
+    await seedGroup({ memberIds: ['alice', 'bob', 'carol', 'guest1'] })
+    await seedPayment('p1', { from: 'carol', to: 'alice', amount: 10, paidBy: 'guest1' })
+    await seedPayment('p2', { from: 'carol', to: 'alice', amount: 10, paidBy: 'bob' })
+    await assertFails(updateDoc(doc(await asUser('bob'), 'groups', 'g1', 'payments', 'p1'), { paidBy: 'bob' }))
+    await assertFails(updateDoc(doc(await asUser('alice'), 'groups', 'g1', 'payments', 'p2'), { paidBy: 'guest1' }))
+  })
+})

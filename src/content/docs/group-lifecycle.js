@@ -38,16 +38,16 @@ export default {
     {
       heading: 'Archiving a group',
       paragraphs: [
-        "Archiving is the final step, and it's only available once every member's balance is exactly zero — in other words, everyone owes nothing and is owed nothing.",
+        "Archiving is the final step, and it's only available once every row in the group's settlement plan has been paid.",
       ],
       steps: [
         "From a group that's settling up, tap \"Settle up\" to open the Settle Up modal.",
-        "Record any remaining payments shown under \"Who pays whom\" until everyone is settled up.",
-        "Once all balances read zero, the \"Archive group\" button becomes available inside the Settle Up modal — tap it and confirm.",
+        "Record any remaining payments in the settlement plan until every row shows \"Paid\".",
+        "Once every row is paid, the \"Archive group\" button becomes available inside the Settle Up modal — tap it and confirm.",
         "The group now shows a gray \"archived\" badge and moves out of your active groups list.",
       ],
       tips: [
-        "The \"Archive group\" button stays disabled until every member's balance is settled — if you don't see it, someone still owes (or is owed) money.",
+        "The \"Archive group\" button only appears once every row in the settlement plan is paid — if you don't see it, someone still has a payment to make.",
       ],
     },
     {

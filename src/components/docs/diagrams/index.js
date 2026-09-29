@@ -9,7 +9,6 @@ import RolesAndPermissionsDiagram from './roles-and-permissions'
 import GroupLifecycleDiagram from './group-lifecycle'
 import ExpensesSplitDiagram from './expenses'
 import BalancesAndSpendingDiagram from './balances-and-spending'
-import SettlingUpDiagram from './settling-up'
 
 export const docDiagrams = {
   'getting-started': GettingStartedDiagram,
@@ -18,7 +17,8 @@ export const docDiagrams = {
   'group-lifecycle': GroupLifecycleDiagram,
   expenses: ExpensesSplitDiagram,
   'balances-and-spending': BalancesAndSpendingDiagram,
-  'settling-up': SettlingUpDiagram,
+  // settling-up has none since the Simplified/Individual comparison it drew
+  // was replaced by a single saved plan.
   // account-settings intentionally has none — two independent linear forms,
   // nothing branching/stateful/comparative to diagram.
 }

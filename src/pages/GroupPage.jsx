@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
-import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, UserMinus, ArrowLeftRight, ShieldPlus, ShieldMinus, RotateCcw, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, UserMinus, ArrowLeftRight, ShieldPlus, ShieldMinus, RotateCcw, ChevronDown, HandCoins } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, removeMember, mergeGuestIntoMember, promoteToAdmin, demoteAdmin, completeGroup, archiveGroup, reopenGroup, getPayments } from '../services/db'
-import { calculateBalances } from '../utils/balances'
+import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, removeMember, mergeGuestIntoMember, promoteToAdmin, demoteAdmin, completeGroup, archiveGroup, reopenGroup, getPayments, ensureSettlementPlan } from '../services/db'
+import { calculateBalances, createSettlementPlan } from '../utils/balances'
 import NavBar from '../components/ui/NavBar'
 import Modal from '../components/ui/Modal'
 import Avatar from '../components/ui/Avatar'
@@ -21,6 +21,10 @@ function fmt(n) {
 }
 function fmtDate(iso) {
   return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+}
+
+function fmtDateTime(iso) {
+  return iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 }
 
 const SECTION_LABEL = 'text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 block'
@@ -49,7 +53,7 @@ export default function GroupPage() {
   const [completing, setCompleting] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [removingId, setRemovingId] = useState(null)
-  const [mergingGuestUid, setMergingGuestUid] = useState(null)
+  const [mergeTargetUid, setMergeTargetUid] = useState(null)
   const [actionMemberUid, setActionMemberUid] = useState(null)
   const [merging, setMerging] = useState(false)
   const [adminChangingId, setAdminChangingId] = useState(null)
@@ -133,6 +137,15 @@ export default function GroupPage() {
       await completeGroup(groupId)
     } catch {
       toast('Failed to complete trip.', 'error')
+      setCompleting(false)
+      return
+    }
+    // Lock in who-pays-whom now. If this write fails, Settle Up creates the
+    // plan the first time it's opened instead, so it's not surfaced here.
+    try {
+      await ensureSettlementPlan(groupId, createSettlementPlan(expenses), user?.uid)
+    } catch (err) {
+      console.error('Could not save settlement plan', err)
     } finally {
       setCompleting(false)
     }
@@ -199,7 +212,7 @@ export default function GroupPage() {
       await mergeGuestIntoMember(groupId, guestUid, targetUid)
       refreshPayments() // merge can rewrite/delete payments — expenses refresh via live subscription, payments don't
       toast(`${guestName} merged into ${targetName}.`, 'success')
-      setMergingGuestUid(null)
+      setMergeTargetUid(null)
     } catch {
       toast('Failed to merge guest. Only group admins can do that.', 'error')
     } finally {
@@ -266,7 +279,12 @@ export default function GroupPage() {
     // action with).
     const canPromote = iAmAdmin && !isTargetCreator && !isTargetAdmin && !profile?.isGuest && !group.archived
     const canDemote = iAmAdmin && !isTargetCreator && isTargetAdmin && !profile?.isGuest && !group.archived
-    const canMerge = profile?.isGuest && iAmAdmin && !group.archived
+    // Merging is triggered from the real member's side, not the guest's —
+    // picking "which guest is this person" from a list that shrinks as
+    // guests get resolved is a much smaller mistake surface than picking
+    // "which member is this guest" out of the full member list. Only
+    // offered when there's at least one guest left to fold in.
+    const canMerge = !profile?.isGuest && iAmAdmin && !group.archived && memberList.some((id) => members[id]?.isGuest)
     return { profile, name, isSelf, isTargetCreator, isTargetAdmin, canRemove, canPromote, canDemote, canMerge }
   }
 
@@ -512,7 +530,7 @@ export default function GroupPage() {
             )}
           </h2>
 
-          {expenses.length === 0 ? (
+          {expenses.length === 0 && payments.length === 0 ? (
             <EmptyState
               icon={Receipt}
               title="No expenses yet"
@@ -526,7 +544,52 @@ export default function GroupPage() {
             />
           ) : (
             <div className="space-y-2">
-              {expenses.map((exp) => {
+              {[
+                ...expenses.map((exp) => ({ kind: 'expense', date: exp.date, item: exp })),
+                ...payments.map((p) => ({ kind: 'payment', date: p.date, item: p })),
+              ].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')).map(({ kind, item }) => {
+                if (kind === 'payment') {
+                  const p = item
+                  const nameOf = (uid) => members[uid]?.displayName ?? members[uid]?.email ?? 'Member'
+                  // paidBy = who handed over the money when it wasn't the
+                  // debtor (e.g. Bansari paying Yuvraj's share); `from` is
+                  // always whose debt it settled.
+                  const payerUid = p.paidBy ?? p.from
+                  const onBehalf = p.paidBy && p.paidBy !== p.from
+                  const payerLabel = payerUid === user?.uid ? 'You' : nameOf(payerUid)
+                  const toLabel = p.to === user?.uid ? 'you' : nameOf(p.to)
+                  const forLabel = p.from === user?.uid ? 'you' : nameOf(p.from)
+                  const recorderLabel = p.recordedBy === user?.uid ? 'you' : nameOf(p.recordedBy)
+                  const showRecordedBy = p.recordedBy && p.recordedBy !== payerUid
+                  const mine = payerUid === user?.uid ? 'you paid'
+                    : p.to === user?.uid ? 'you received'
+                    : p.from === user?.uid ? 'paid for you'
+                    : 'payment'
+                  return (
+                    <div
+                      key={`payment-${p.id}`}
+                      className="flex items-center gap-3 bg-green-950/20 border border-green-900/40 rounded-2xl px-4 py-3.5"
+                    >
+                      <Avatar name={nameOf(payerUid)} uid={payerUid} size="md" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate flex items-center gap-1.5">
+                          <HandCoins size={14} className="text-green-500 shrink-0" />
+                          {payerLabel} paid {toLabel}{onBehalf && ` for ${forLabel}`}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5 truncate">
+                          Payment · {fmtDateTime(p.date)}
+                          {showRecordedBy && ` · recorded by ${recorderLabel}`}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="font-semibold text-green-400 tabular-nums text-sm">{fmt(p.amount)}</p>
+                        <p className="text-[11px] text-green-700">{mine}</p>
+                      </div>
+                    </div>
+                  )
+                }
+
+                const exp = item
                 const payerName = members[exp.paidBy]?.displayName ?? exp.paidByName ?? ''
                 const payerLabel = exp.paidBy === user?.uid ? 'You' : payerName
                 const adderName = members[exp.addedBy]?.displayName ?? exp.addedByName ?? ''
@@ -744,11 +807,11 @@ export default function GroupPage() {
               {canMerge && (
                 <button
                   type="button"
-                  onClick={() => { setActionMemberUid(null); setMergingGuestUid(uid) }}
+                  onClick={() => { setActionMemberUid(null); setMergeTargetUid(uid) }}
                   className={clsx(actionButtonClass, 'text-white')}
                 >
                   <ArrowLeftRight size={16} className="text-slate-400" />
-                  Merge into a real member
+                  Merge a guest into them
                 </button>
               )}
               {canPromote && (
@@ -792,31 +855,33 @@ export default function GroupPage() {
         )
       })()}
 
-      {mergingGuestUid && (() => {
-        const guestName = members[mergingGuestUid]?.displayName ?? 'Member'
-        const targets = memberList.filter((uid) => uid !== mergingGuestUid && !members[uid]?.isGuest)
+      {mergeTargetUid && (() => {
+        const targetName = mergeTargetUid === user?.uid ? 'You' : (members[mergeTargetUid]?.displayName ?? members[mergeTargetUid]?.email ?? 'Member')
+        // Only guests still on the group show up here — as each gets
+        // resolved the list shrinks, so there's less room to pick wrong.
+        const guests = memberList.filter((uid) => uid !== mergeTargetUid && members[uid]?.isGuest)
         return (
-          <Modal title={`Merge ${guestName}`} onClose={() => setMergingGuestUid(null)} size="sm">
+          <Modal title={`Merge into ${targetName}`} onClose={() => setMergeTargetUid(null)} size="sm">
             <div className="p-5 space-y-4">
               <p className="text-sm text-slate-400">
-                Pick the real member {guestName} turned out to be. Their expenses and payments move over, and {guestName} is removed.
+                Pick the guest placeholder {targetName} turned out to be. Their expenses and payments move over, and the guest is removed.
               </p>
-              {targets.length === 0 ? (
-                <p className="text-sm text-slate-500">No other members to merge into yet — invite the real person and wait for them to accept first.</p>
+              {guests.length === 0 ? (
+                <p className="text-sm text-slate-500">No guests left to merge — they may have already been merged in.</p>
               ) : (
                 <div className="space-y-2">
-                  {targets.map((uid) => {
-                    const targetName = uid === user?.uid ? 'You' : (members[uid]?.displayName ?? members[uid]?.email ?? 'Member')
+                  {guests.map((uid) => {
+                    const guestName = members[uid]?.displayName ?? 'Member'
                     return (
                       <button
                         key={uid}
                         type="button"
                         disabled={merging}
-                        onClick={() => handleMergeGuest(mergingGuestUid, guestName, uid, targetName)}
+                        onClick={() => handleMergeGuest(uid, guestName, mergeTargetUid, targetName)}
                         className="w-full flex items-center gap-2.5 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-left transition-colors disabled:opacity-50"
                       >
-                        <Avatar name={targetName} uid={uid} size="sm" />
-                        <span className="text-sm text-white">{targetName}</span>
+                        <Avatar name={guestName} uid={uid} size="sm" />
+                        <span className="text-sm text-white">{guestName}</span>
                       </button>
                     )
                   })}

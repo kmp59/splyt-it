@@ -18,6 +18,8 @@ export {
   demoteAdmin,
   recordPayment,
   getPayments,
+  getSettlementPlan,
+  ensureSettlementPlan,
   getUserGroups,
   getGroupById,
   getGroupMembers,

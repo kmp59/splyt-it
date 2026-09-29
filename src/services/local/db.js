@@ -1,9 +1,11 @@
 import { lsGet, lsSet, lsSubscribe, lsId } from '../../lib/localStore'
+import { mergeUidInPlan } from '../../utils/balances'
 
 const GRP_KEY = 'splyt_groups'
 const USR_KEY = 'splyt_users'
 const expKey = (gid) => `splyt_expenses_${gid}`
 const payKey = (gid) => `splyt_payments_${gid}`
+const planKey = (gid) => `splyt_plan_${gid}`
 
 const readGroups = () => lsGet(GRP_KEY, [])
 const writeGroups = (g) => lsSet(GRP_KEY, g)
@@ -301,6 +303,7 @@ export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
     groupId,
     readPay(groupId)
       .map((pay) => {
+        if (pay.paidBy === guestUid) return { ...pay, paidBy: targetUid }
         if (pay.from !== guestUid && pay.to !== guestUid) return pay
         const from = pay.from === guestUid ? targetUid : pay.from
         const to = pay.to === guestUid ? targetUid : pay.to
@@ -310,6 +313,9 @@ export async function mergeGuestIntoMember(groupId, guestUid, targetUid) {
       })
       .filter(Boolean)
   )
+
+  const plan = lsGet(planKey(groupId), null)
+  if (plan) lsSet(planKey(groupId), mergeUidInPlan(plan, guestUid, targetUid))
 
   groups[idx] = { ...groups[idx], memberIds: groups[idx].memberIds.filter((uid) => uid !== guestUid) }
   writeGroups(groups)
@@ -413,6 +419,19 @@ export async function recordPayment(groupId, payment) {
 
 export async function getPayments(groupId) {
   return readPay(groupId)
+}
+
+// Settlement plan — saved once, never overwritten (mirrors Firestore).
+export async function getSettlementPlan(groupId) {
+  return lsGet(planKey(groupId), null)
+}
+
+export async function ensureSettlementPlan(groupId, plan, uid) {
+  const existing = lsGet(planKey(groupId), null)
+  if (existing) return existing
+  const data = { rows: plan.rows, balances: plan.balances, createdBy: uid, createdAt: { seconds: Date.now() / 1000 } }
+  lsSet(planKey(groupId), data)
+  return data
 }
 
 // ---------------------------------------------------------------------------
