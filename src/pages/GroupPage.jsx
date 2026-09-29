@@ -14,6 +14,7 @@ import EmptyState from '../components/ui/EmptyState'
 import { FullPageSpinner } from '../components/ui/LoadingSpinner'
 import AddExpenseModal from '../components/expenses/AddExpenseModal'
 import ExpenseDetailModal from '../components/expenses/ExpenseDetailModal'
+import PaidByFilter from '../components/expenses/PaidByFilter'
 import SettleUpModal from '../components/groups/SettleUpModal'
 
 function fmt(n) {
@@ -38,6 +39,7 @@ export default function GroupPage() {
   const [expenses, setExpenses] = useState([])
   const [members, setMembers] = useState({})
   const [payments, setPayments] = useState([])
+  const [paidByFilter, setPaidByFilter] = useState('') // '' = everyone
   const [groupLoading, setGroupLoading] = useState(true)
   const [showAddExpense, setShowAddExpense] = useState(false)
   const [editingExpense, setEditingExpense] = useState(null)
@@ -259,6 +261,21 @@ export default function GroupPage() {
   const memberList = group.memberIds ?? []
   const pendingList = group.pendingMemberIds ?? []
   const hasExpenses = expenses.length > 0
+
+  // Expense list: expenses and recorded payments in one timeline, newest
+  // first, optionally narrowed to one person. For a payment, "who paid" is
+  // whoever handed over the money (paidBy, else the debtor).
+  const payerOf = (entry) => (entry.kind === 'payment' ? (entry.item.paidBy ?? entry.item.from) : entry.item.paidBy)
+  const timeline = [
+    ...expenses.map((exp) => ({ kind: 'expense', date: exp.date, item: exp })),
+    ...payments.map((p) => ({ kind: 'payment', date: p.date, item: p })),
+  ].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+  const payerIds = [...new Set(timeline.map(payerOf))]
+    .sort((a, b) => (memberList.indexOf(a) + 1 || Infinity) - (memberList.indexOf(b) + 1 || Infinity))
+  const filterNameOf = (uid) => (uid === user?.uid ? 'You' : (members[uid]?.displayName
+    ?? expenses.find((e) => e.paidBy === uid)?.paidByName ?? members[uid]?.email ?? 'Member'))
+  const visibleTimeline = paidByFilter ? timeline.filter((e) => payerOf(e) === paidByFilter) : timeline
+  const filteredExpenseTotal = visibleTimeline.reduce((sum, e) => (e.kind === 'expense' ? sum + e.item.amount : sum), 0)
   const myBalance = balances[user?.uid] ?? 0
   const adminIds = group.adminIds ?? []
   const isAdmin = (uid) => uid === group.createdBy || adminIds.includes(uid)
@@ -521,14 +538,32 @@ export default function GroupPage() {
 
         {/* Expenses list — default tab */}
         <section className={clsx(tab !== 'expenses' && 'hidden')}>
-          <h2 className={SECTION_LABEL}>
-            Expenses
-            {hasExpenses && (
-              <span className="ml-2 text-slate-500 font-normal normal-case tracking-normal">
-                · {fmt(group.totalExpenses ?? 0)} total
-              </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 className={SECTION_LABEL} style={{ marginBottom: 0 }}>
+              Expenses
+              {hasExpenses && (
+                <span className="ml-2 text-slate-500 font-normal normal-case tracking-normal">
+                  · {fmt(group.totalExpenses ?? 0)} total
+                </span>
+              )}
+            </h2>
+            {payerIds.length > 1 && (
+              <PaidByFilter
+                options={payerIds}
+                value={paidByFilter}
+                onChange={setPaidByFilter}
+                nameOf={filterNameOf}
+                avatarNameOf={(uid) => members[uid]?.displayName ?? filterNameOf(uid)}
+              />
             )}
-          </h2>
+          </div>
+
+          {paidByFilter && (
+            <p className="-mt-1 mb-3 text-xs text-slate-500">
+              Showing {visibleTimeline.length} of {timeline.length}
+              {filteredExpenseTotal > 0 && <> · <span className="text-slate-300 tabular-nums">{fmt(filteredExpenseTotal)}</span> in expenses</>}
+            </p>
+          )}
 
           {expenses.length === 0 && payments.length === 0 ? (
             <EmptyState
@@ -544,10 +579,10 @@ export default function GroupPage() {
             />
           ) : (
             <div className="space-y-2">
-              {[
-                ...expenses.map((exp) => ({ kind: 'expense', date: exp.date, item: exp })),
-                ...payments.map((p) => ({ kind: 'payment', date: p.date, item: p })),
-              ].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '')).map(({ kind, item }) => {
+              {visibleTimeline.length === 0 && (
+                <p className="py-6 text-center text-sm text-slate-500">Nothing paid by {paidByFilter === user?.uid ? 'you' : filterNameOf(paidByFilter)} yet.</p>
+              )}
+              {visibleTimeline.map(({ kind, item }) => {
                 if (kind === 'payment') {
                   const p = item
                   const nameOf = (uid) => members[uid]?.displayName ?? members[uid]?.email ?? 'Member'
