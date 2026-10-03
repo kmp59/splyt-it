@@ -2,22 +2,80 @@ function toCents(n) {
   return Math.round(n * 100)
 }
 
-export function calculateBalances(expenses, payments = []) {
-  const balances = {}
+// Splits `amount` into whole-cent shares that add up to it exactly. `shares`
+// (uid → number) gives the proportions — equal numbers for an equal split,
+// dollar amounts or percentages otherwise. Whatever cents are left after
+// rounding down go to the largest fractional remainders, ties broken by uid so
+// every client lands on the same answer. Returns uid → dollars.
+export function splitInCents(amount, shares) {
+  const entries = Object.entries(shares ?? {})
+  if (entries.length === 0) return {}
+  const total = toCents(amount)
+  let weightSum = entries.reduce((s, [, w]) => s + w, 0)
+  const weights = weightSum > 0 ? entries : entries.map(([uid]) => [uid, 1])
+  if (weightSum <= 0) weightSum = entries.length
 
-  for (const expense of expenses) {
-    const { paidBy, amount, splits } = expense
+  const parts = weights.map(([uid, w]) => {
+    const exact = (total * w) / weightSum
+    const floor = Math.floor(exact + 1e-9)
+    return { uid, cents: floor, frac: exact - floor }
+  })
+  let left = total - parts.reduce((s, p) => s + p.cents, 0)
+  const order = [...parts].sort((a, b) => b.frac - a.frac || (a.uid < b.uid ? -1 : 1))
+  for (let i = 0; left > 0 && i < order.length; i = (i + 1) % order.length, left--) order[i].cents++
+
+  return Object.fromEntries(parts.map((p) => [p.uid, p.cents / 100]))
+}
+
+// Everyone's net balance in dollars, in whole cents that add up to exactly
+// zero. Without a saved plan, each person's exact balance is rounded once and
+// the leftover cents go to the largest fractional remainders (ties by uid).
+// With a saved plan, balances follow the plan's rows — what settle-up says
+// each person pays or is owed — so "owes" and "due" always match, whatever
+// cents rounding did when the plan was made.
+export function calculateBalances(expenses, payments = [], plan = null) {
+  const cents = plan ? balancesFromPlan(expenses, plan) : roundedBalances(expenses)
+
+  for (const payment of payments) {
+    cents[payment.from] = (cents[payment.from] ?? 0) + toCents(payment.amount)
+    cents[payment.to]   = (cents[payment.to]   ?? 0) - toCents(payment.amount)
+  }
+
+  return Object.fromEntries(Object.entries(cents).map(([uid, c]) => [uid, c / 100]))
+}
+
+function roundedBalances(expenses) {
+  const exact = Object.entries(exactBalances(expenses)).map(([uid, dollars]) => {
+    const value = dollars * 100
+    const floor = Math.floor(value + 1e-6)
+    return { uid, cents: floor, frac: value - floor }
+  })
+  let left = -exact.reduce((s, p) => s + p.cents, 0)
+  const order = [...exact].sort((a, b) => b.frac - a.frac || (a.uid < b.uid ? -1 : 1))
+  for (let i = 0; left > 0 && i < order.length; i = (i + 1) % order.length, left--) order[i].cents++
+  return Object.fromEntries(exact.map((p) => [p.uid, p.cents]))
+}
+
+function balancesFromPlan(expenses, plan) {
+  const cents = {}
+  for (const { from, to, cents: c } of [...(plan.rows ?? []), ...rowsForLaterExpenses(plan, expenses)]) {
+    cents[from] = (cents[from] ?? 0) - c
+    cents[to]   = (cents[to]   ?? 0) + c
+  }
+  return cents
+}
+
+// The unrounded balances a settlement plan is built from. Plans saved before
+// splits were kept to whole cents hold these (rounded once), so the plan and
+// its "added since" check keep using them and saved plans never shift.
+function exactBalances(expenses) {
+  const balances = {}
+  for (const { paidBy, amount, splits } of expenses) {
     balances[paidBy] = (balances[paidBy] ?? 0) + amount
     for (const [uid, owed] of Object.entries(splits ?? {})) {
       balances[uid] = (balances[uid] ?? 0) - owed
     }
   }
-
-  for (const payment of payments) {
-    balances[payment.from] = (balances[payment.from] ?? 0) + payment.amount
-    balances[payment.to]   = (balances[payment.to]   ?? 0) - payment.amount
-  }
-
   return balances
 }
 
@@ -80,11 +138,11 @@ export function settlementStatus(expenses, payments = [], plan = null) {
 // moment it was made, so expenses added later can be told apart.
 export function createSettlementPlan(expenses) {
   const balances = {}
-  for (const [uid, balance] of Object.entries(calculateBalances(expenses))) {
+  for (const [uid, balance] of Object.entries(exactBalances(expenses))) {
     const cents = toCents(balance)
     if (cents !== 0) balances[uid] = cents
   }
-  const rows = Object.entries(basePlan(calculateBalances(expenses))).map(([key, cents]) => {
+  const rows = Object.entries(basePlan(exactBalances(expenses))).map(([key, cents]) => {
     const [from, to] = key.split('|')
     return { from, to, cents }
   })
@@ -95,7 +153,7 @@ export function createSettlementPlan(expenses) {
 // added, edited or deleted afterwards), as extra rows alongside the saved ones.
 function rowsForLaterExpenses(plan, expenses) {
   const delta = {}
-  const now = calculateBalances(expenses)
+  const now = exactBalances(expenses)
   for (const uid of new Set([...Object.keys(now), ...Object.keys(plan.balances ?? {})])) {
     const diff = toCents(now[uid] ?? 0) - (plan.balances?.[uid] ?? 0)
     if (diff !== 0) delta[uid] = diff / 100

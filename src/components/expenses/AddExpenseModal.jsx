@@ -4,6 +4,7 @@ import { ChevronDown, Search, Check } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { addExpense, updateExpense } from '../../services/db'
+import { splitInCents } from '../../utils/balances'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import Avatar from '../ui/Avatar'
@@ -79,17 +80,16 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
     })
   }
 
+  // Shares are kept to whole cents and always add up to the amount, so nobody
+  // is left a fraction of a cent off (e.g. $219.91 ÷ 10).
   function computeSplits() {
     if (splitType === 'equal') {
-      const share = parsedAmount / splitMembers.length
-      return Object.fromEntries(splitMembers.map(([uid]) => [uid, share]))
+      return splitInCents(parsedAmount, Object.fromEntries(splitMembers.map(([uid]) => [uid, 1])))
     }
     if (splitType === 'exact') {
-      return Object.fromEntries(splitMembers.map(([uid]) => [uid, parseFloat(exactAmounts[uid]) || 0]))
+      return splitInCents(parsedAmount, Object.fromEntries(splitMembers.map(([uid]) => [uid, parseFloat(exactAmounts[uid]) || 0])))
     }
-    return Object.fromEntries(
-      splitMembers.map(([uid]) => [uid, (parsedAmount * (parseFloat(percentages[uid]) || 0)) / 100])
-    )
+    return splitInCents(parsedAmount, Object.fromEntries(splitMembers.map(([uid]) => [uid, parseFloat(percentages[uid]) || 0])))
   }
 
   function validate() {
@@ -144,7 +144,7 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
     }
   }
 
-  const equalShare = splitMembers.length ? parsedAmount / splitMembers.length : 0
+  const equalShares = splitMembers.length ? splitInCents(parsedAmount, Object.fromEntries(splitMembers.map(([uid]) => [uid, 1]))) : {}
   const exactSum   = splitMembers.reduce((s, [uid]) => s + (parseFloat(exactAmounts[uid]) || 0), 0)
   const percentSum = splitMembers.reduce((s, [uid]) => s + (parseFloat(percentages[uid])  || 0), 0)
 
@@ -301,7 +301,7 @@ export default function AddExpenseModal({ groupId, members, expense, onClose }) 
                     <Avatar name={name} uid={uid} size="sm" />
                     <span className="text-slate-300">{uid === user?.uid ? 'You' : name}</span>
                   </div>
-                  <span className="font-medium text-white">${equalShare.toFixed(2)}</span>
+                  <span className="font-medium text-white">${(equalShares[uid] ?? 0).toFixed(2)}</span>
                 </div>
               )
             })}

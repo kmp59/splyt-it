@@ -4,7 +4,7 @@ import { ArrowLeft, Plus, Trash2, Pencil, Receipt, TrendingUp, Scale, UserPlus, 
 import clsx from 'clsx'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
-import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, removeMember, mergeGuestIntoMember, promoteToAdmin, demoteAdmin, completeGroup, archiveGroup, reopenGroup, getPayments, ensureSettlementPlan } from '../services/db'
+import { subscribeToGroup, subscribeToExpenses, getGroupMembers, deleteExpense, addMemberToGroup, addGuestToGroup, removeMember, mergeGuestIntoMember, promoteToAdmin, demoteAdmin, completeGroup, archiveGroup, reopenGroup, getPayments, getSettlementPlan, ensureSettlementPlan } from '../services/db'
 import { calculateBalances, createSettlementPlan } from '../utils/balances'
 import NavBar from '../components/ui/NavBar'
 import Modal from '../components/ui/Modal'
@@ -60,6 +60,7 @@ export default function GroupPage() {
   const [merging, setMerging] = useState(false)
   const [adminChangingId, setAdminChangingId] = useState(null)
   const [membersOpen, setMembersOpen] = useState(false)
+  const [plan, setPlan] = useState(null)
 
   // real-time group doc
   useEffect(() => {
@@ -93,6 +94,11 @@ export default function GroupPage() {
   useEffect(() => {
     refreshPayments()
   }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The saved settlement plan, once there is one — balances follow its rows.
+  useEffect(() => {
+    getSettlementPlan(groupId).then(setPlan).catch(() => setPlan(null))
+  }, [groupId, group?.completed])
 
   async function handleAddMember(e) {
     e.preventDefault()
@@ -146,6 +152,7 @@ export default function GroupPage() {
     // plan the first time it's opened instead, so it's not surfaced here.
     try {
       await ensureSettlementPlan(groupId, createSettlementPlan(expenses), user?.uid)
+      setPlan(await getSettlementPlan(groupId))
     } catch (err) {
       console.error('Could not save settlement plan', err)
     } finally {
@@ -212,6 +219,7 @@ export default function GroupPage() {
     setMerging(true)
     try {
       await mergeGuestIntoMember(groupId, guestUid, targetUid)
+      getSettlementPlan(groupId).then(setPlan).catch(() => {})
       refreshPayments() // merge can rewrite/delete payments — expenses refresh via live subscription, payments don't
       toast(`${guestName} merged into ${targetName}.`, 'success')
       setMergeTargetUid(null)
@@ -257,7 +265,7 @@ export default function GroupPage() {
     )
   }
 
-  const balances = calculateBalances(expenses, payments)
+  const balances = calculateBalances(expenses, payments, plan)
   const memberList = group.memberIds ?? []
   const pendingList = group.pendingMemberIds ?? []
   const hasExpenses = expenses.length > 0
@@ -827,7 +835,7 @@ export default function GroupPage() {
           currentUid={user?.uid}
           onArchive={handleArchive}
           archiving={archiving}
-          onClose={() => { setShowSettleUp(false); refreshPayments() }}
+          onClose={() => { setShowSettleUp(false); refreshPayments(); getSettlementPlan(groupId).then(setPlan).catch(() => {}) }}
         />
       )}
 
